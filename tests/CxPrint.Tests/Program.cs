@@ -19,6 +19,38 @@ var printer=new PrinterInfo(Product.PrinterId("Fixture"),"Fixture","Fixture driv
 var shared=new SharedPrinter(printer.Id,printer.Name);
 IppMessage Request(params IppAttribute[] attrs)=>new(2,0,0x000b,42,[Text(1,IppTag.Charset,"attributes-charset","utf-8"),Text(1,IppTag.Language,"attributes-natural-language","en"),..attrs]);
 
+Test("Apple display names preserve legacy settings and fit a UTF-8 DNS-SD label",()=>
+{
+    var legacy=System.Text.Json.JsonSerializer.Deserialize<SharedPrinter>("{\"id\":\"test\",\"name\":\"HP Laser NS MFP 1005\"}",Product.Json)!;
+    Assert(legacy.DisplayName is null && legacy.EffectiveDisplayName=="HP Laser NS MFP 1005- CX Printer");
+    Assert((legacy with { DisplayName="  办公室.打印机😀  " }).EffectiveDisplayName=="办公室.打印机😀");
+    Assert((legacy with { DisplayName="   " }).EffectiveDisplayName==legacy.EffectiveDisplayName);
+    foreach (var name in new[]{new string('A',256),string.Concat(Enumerable.Repeat("财务😀",60))})
+    {
+        var display=SharedPrinter.DefaultDisplayName(name);
+        Assert(Encoding.UTF8.GetByteCount(display)<=SharedPrinter.MaxDisplayNameBytes && display.EndsWith("- CX Printer"));
+        Assert(!display.Contains('\ufffd'),"Default truncation split a Unicode rune.");
+    }
+    Assert(SharedPrinter.DefaultDisplayName(new string('A',70)+"1")!=SharedPrinter.DefaultDisplayName(new string('A',70)+"2"),"Long queue names collapsed to the same default name.");
+    (legacy with { DisplayName=new string('A',63) }).ValidateDisplayName();
+    (legacy with { DisplayName=new string('中',21) }).ValidateDisplayName();
+    Throws<ArgumentException>(()=>(legacy with { DisplayName=new string('A',64) }).ValidateDisplayName());
+    Throws<ArgumentException>(()=>(legacy with { DisplayName=new string('中',22) }).ValidateDisplayName());
+    Throws<ArgumentException>(()=>(legacy with { DisplayName="财务\n打印机" }).ValidateDisplayName());
+    Throws<ArgumentException>(()=>new BridgeSettings { Printers=[shared with { DisplayName="Office" },new(Product.PrinterId("Other"),"Other",DisplayName:"office")] }.Validate());
+});
+AsyncTest("IPP names use the configured Apple name without changing printer identity",async ()=>
+{
+    foreach (var displayName in new string?[]{null,"财务室.打印机😀"})
+    {
+        var renamed=shared with { DisplayName=displayName };
+        var attrs=PrinterAttributes.Build(printer,renamed,"ipp://localhost/printers/"+printer.Id,false,10,0,1);
+        var reply=await ReadAsync(new MemoryStream(Write(Response(Request(),0,attrs))));
+        Assert(reply.Text("printer-name")==renamed.EffectiveDisplayName && reply.Text("printer-info")==renamed.EffectiveDisplayName);
+        Assert(reply.Text("printer-uri-supported")!.EndsWith("/"+printer.Id));
+        Assert(reply.Text("printer-uuid")=="urn:uuid:"+PrinterAttributes.StableUuid(printer.Id));
+    }
+});
 Test("A4, A3 and Letter keywords remain distinct",()=>
 {
     Assert(MediaSize.Keyword(21000,29700)==a4.Key); Assert(MediaSize.Keyword(21590,27940)==letter.Key);

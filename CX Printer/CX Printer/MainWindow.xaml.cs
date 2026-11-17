@@ -55,6 +55,7 @@ public sealed partial class MainWindow : Window
     private async void Root_Loaded(object sender,RoutedEventArgs e)
     {
         if (_ready) return; _ready=true; _rendering=false;
+        RailStatusPanel.Visibility=Navigation.IsPaneOpen ? Visibility.Visible : Visibility.Collapsed;
         await Run(async ()=>
         {
             if (DebugMode) await StartDebugService();
@@ -65,6 +66,14 @@ public sealed partial class MainWindow : Window
         if (_trayError is not null) Tell("系统托盘暂不可用",_trayError,InfoBarSeverity.Warning);
     }
     private void MinimizeToTray_Click(object sender,RoutedEventArgs e)=>_trayIcon?.Minimize();
+    private void Navigation_PaneChanged(NavigationView sender,object args)
+    {
+        if (RailStatusPanel is not null) RailStatusPanel.Visibility=sender.IsPaneOpen ? Visibility.Visible : Visibility.Collapsed;
+    }
+    private void Navigation_PaneClosing(NavigationView sender,NavigationViewPaneClosingEventArgs args)
+    {
+        if (RailStatusPanel is not null) RailStatusPanel.Visibility=Visibility.Collapsed;
+    }
     private void Navigation_SelectionChanged(NavigationView sender,NavigationViewSelectionChangedEventArgs args)
     {
         if (PrintersPage is null || args.SelectedItem is not NavigationViewItem item) return;
@@ -73,6 +82,7 @@ public sealed partial class MainWindow : Window
         AccountPage.Visibility=tag=="account" ? Visibility.Visible : Visibility.Collapsed;
         JobsPage.Visibility=tag=="jobs" ? Visibility.Visible : Visibility.Collapsed;
         ConnectionPage.Visibility=tag=="connection" ? Visibility.Visible : Visibility.Collapsed;
+        PageScroll.ChangeView(null,0,null,true);
         PageTitle.Text=item.Content?.ToString() ?? "CX Printer";
         PageSubtitle.Text=tag switch
         {
@@ -133,7 +143,7 @@ public sealed partial class MainWindow : Window
             NoJobs.Visibility=status?.Jobs.Count>0 ? Visibility.Collapsed : Visibility.Visible;
             NetworkDetails.Text=status is null ? connectionError ?? "打印服务未运行。请先安装或启动服务。" :
                 $"后台版本：{status.Diagnostics?.ServiceVersion.Split('+')[0] ?? "未提供（旧版后台）"}\n服务端口：TCP {status.Port}    设备发现：UDP 5353\n{status.DiscoveryStatus}\n当前地址：{string.Join("，",status.Addresses)}\n\n"+
-                string.Join("\n",status.SharedPrinters.Select(p=>$"{p.Name}\nipp://{status.Addresses.FirstOrDefault(a=>!a.Contains(':')) ?? "电脑IP"}:{status.Port}/printers/{p.Id}"));
+                string.Join("\n\n",status.SharedPrinters.Select(p=>$"{p.EffectiveDisplayName}\nWindows 打印机：{p.Name}\nipp://{status.Addresses.FirstOrDefault(a=>!a.Contains(':')) ?? "电脑IP"}:{status.Port}/printers/{p.Id}"));
             static string PrinterFingerprint(PrinterInfo p)=>p.Id+":"+p.Summary+":"+p.DefaultMedia+":"+string.Join(',',p.Media.Select(m=>$"{m.Key}/{m.Width}/{m.Height}"));
             if (refreshPrinters || !_printers.Select(p=>PrinterFingerprint(p.Info)).SequenceEqual(available.Select(PrinterFingerprint)))
             {
@@ -146,9 +156,9 @@ public sealed partial class MainWindow : Window
                     var old=saved.GetValueOrDefault(printer.Id);
                     var defaultMedia=old?.Usable==true ? old.DefaultMedia : shared?.DefaultMedia ?? printer.DefaultMedia;
                     if (printer.Usable && !printer.Media.Any(m=>m.Key==defaultMedia)) defaultMedia=printer.DefaultMedia;
-                    _printers.Add(new(printer,old?.Usable==true ? old.Shared : shared is not null,defaultMedia));
+                    _printers.Add(new(printer,old?.Usable==true ? old.Shared : shared is not null,defaultMedia,old?.Usable==true ? old.DisplayName : shared?.DisplayName));
                 }
-                PrintersList.SelectedItem=_printers.FirstOrDefault(p=>p.Id==selected) ?? _printers.FirstOrDefault();
+                PrintersList.SelectedItem=_printers.FirstOrDefault(p=>p.Id==selected) ?? _printers.FirstOrDefault(p=>p.Usable);
                 ShowPaper();
             }
             PrinterCount.Text=$"{_printers.Count} 台打印机";
@@ -174,7 +184,11 @@ public sealed partial class MainWindow : Window
         var previous=_rendering; _rendering=true;
         try
         {
-            PaperPrinterName.Text=row.Name; PaperCombo.ItemsSource=row.Info.Media;
+            PaperPrinterName.Text=row.Name;
+            DisplayNameBox.PlaceholderText=SharedPrinter.DefaultDisplayName(row.Name);
+            DisplayNameBox.Text=row.DisplayName ?? "";
+            UpdateDisplayNamePreview(row);
+            PaperCombo.ItemsSource=row.Info.Media;
             PaperCombo.SelectedItem=row.Info.Media.FirstOrDefault(m=>m.Key==row.DefaultMedia) ?? row.Info.Media.FirstOrDefault();
             PaperDetails.Text=string.Join("\n",row.Info.Media.Select(m=>m.Description));
         }
@@ -183,6 +197,26 @@ public sealed partial class MainWindow : Window
     private void Paper_SelectionChanged(object sender,SelectionChangedEventArgs e)
     {
         if (!_rendering && PrintersList.SelectedItem is PrinterRow row && PaperCombo.SelectedItem is MediaSize media) row.DefaultMedia=media.Key;
+    }
+    private void DisplayName_TextChanged(object sender,TextChangedEventArgs e)
+    {
+        if (_rendering || PrintersList.SelectedItem is not PrinterRow row) return;
+        row.DisplayName=SharedPrinter.NormalizeDisplayName(DisplayNameBox.Text);
+        UpdateDisplayNamePreview(row);
+    }
+    private void ResetDisplayName_Click(object sender,RoutedEventArgs e)
+    {
+        if (PrintersList.SelectedItem is not PrinterRow row) return;
+        row.DisplayName=null; DisplayNameBox.Text=""; UpdateDisplayNamePreview(row);
+    }
+    private void UpdateDisplayNamePreview(PrinterRow row)
+    {
+        try
+        {
+            row.ToSharedPrinter().ValidateDisplayName();
+            DisplayNamePreview.Text="Apple 设备将显示："+row.EffectiveDisplayName;
+        }
+        catch (ArgumentException ex) { DisplayNamePreview.Text=ex.Message; }
     }
     private void Auth_Toggled(object sender,RoutedEventArgs e)
     { if (CredentialFields is not null) SetCredentialsEnabled(); }
@@ -218,11 +252,14 @@ public sealed partial class MainWindow : Window
     }
     private async void SavePrinters_Click(object sender,RoutedEventArgs e)=>await Run(async ()=>
     {
-        var selected=_printers.Where(p=>p.Shared && p.Usable).Select(p=>new SharedPrinter(p.Id,p.Name,p.DefaultMedia)).ToList();
+        var selected=_printers.Where(p=>p.Shared && p.Usable).Select(p=>p.ToSharedPrinter()).ToList();
         if (selected.Count==0) throw new ArgumentException("请至少勾选一台可用打印机。临时停止打印请使用上方的共享开关。");
+        new BridgeSettings { Printers=selected }.Validate();
         await EnsureRunning();
-        await Apply(new(selected,_status!.AuthenticationEnabled,_status.Username,Enabled:_status.Enabled));
-        Tell("共享设置已保存","设备发现将在几秒内更新。若 Mac 仍显示旧纸张列表，请移除并重新添加此打印机。",InfoBarSeverity.Success);
+        if (!Version.TryParse(_status!.Diagnostics?.ServiceVersion.Split('+')[0],out var backendVersion) || backendVersion<new Version(1,0,0,7))
+            throw new InvalidOperationException("当前后台版本尚不支持 Apple 显示名称。请在“启动与连接”点击“修复服务与防火墙”，更新后台后再保存。");
+        await Apply(new(selected,_status.AuthenticationEnabled,_status.Username,Enabled:_status.Enabled));
+        Tell("共享设置已保存","Apple 显示名称和设备发现将在几秒内更新。Mac 中已添加的队列若仍保留旧名称，请移除并重新添加。",InfoBarSeverity.Success);
     });
     private async void SaveAccount_Click(object sender,RoutedEventArgs e)=>await Run(async ()=>
     {
@@ -388,15 +425,31 @@ public sealed partial class MainWindow : Window
 
 public sealed record JobRow(string Name,string Message,string Created);
 
-public sealed class PrinterRow(PrinterInfo info,bool shared,string defaultMedia) : INotifyPropertyChanged
+public sealed class PrinterRow(PrinterInfo info,bool shared,string defaultMedia,string? displayName=null) : INotifyPropertyChanged
 {
     private bool _shared=shared;
+    private string? _displayName=displayName;
     public PrinterInfo Info { get; }=info;
     public string Id=>Info.Id;
     public string Name=>Info.Name;
     public string Summary=>Info.Summary;
     public bool Usable=>Info.Usable;
+    public Visibility NamePreviewVisibility=>Usable ? Visibility.Visible : Visibility.Collapsed;
     public string DefaultMedia { get; set; }=defaultMedia;
+    public string? DisplayName
+    {
+        get=>_displayName;
+        set
+        {
+            if (_displayName==value) return;
+            _displayName=value;
+            PropertyChanged?.Invoke(this,new(nameof(DisplayName)));
+            PropertyChanged?.Invoke(this,new(nameof(AppleNamePreview)));
+        }
+    }
+    public string EffectiveDisplayName=>ToSharedPrinter().EffectiveDisplayName;
+    public string AppleNamePreview=>"Apple："+EffectiveDisplayName;
+    public SharedPrinter ToSharedPrinter()=>new(Id,Name,DefaultMedia,DisplayName);
     public bool Shared { get=>_shared; set { _shared=value; PropertyChanged?.Invoke(this,new(nameof(Shared))); } }
     public event PropertyChangedEventHandler? PropertyChanged;
 }

@@ -136,6 +136,30 @@ try
         Assert(reply.Ipp!.Text("media-default")==paper.Key); Assert(reply.Ipp.Find("media-col-database")!.Values.Count==2);
         Assert(reply.Ipp.Find("media-col-database")!.Values[1].Member("media-size")!.Values[0].Member("y-dimension")!.Values[0].Integer==42000);
     });
+    await Test("Apply persists Apple names, reloads them, refreshes discovery and keeps the Windows destination",async ()=>
+    {
+        var changes=0;
+        state.Changed+=()=>changes++;
+        try
+        {
+            var renamed=selected with { DisplayName="  财务室.打印机😀  " };
+            state.Apply(new([renamed],false,""),[printer]);
+            Assert(changes==1,"Renaming did not notify discovery.");
+            var reloaded=new StateStore(settingsPath).Settings.Printers.Single();
+            Assert(reloaded.DisplayName=="财务室.打印机😀" && reloaded.Id==printer.Id && reloaded.Name==printer.Name);
+            var reply=await Send(Request(0x000b));
+            Assert(reply.Ipp?.Code==0 && reply.Ipp.Text("printer-name")==reloaded.DisplayName && reply.Ipp.Text("printer-info")==reloaded.DisplayName);
+            var profile=PrinterAdvertisement.Create(printer,state.Settings,[IPAddress.Loopback],"FILESERVER");
+            Assert(profile.InstanceName.Labels.Single()==reply.Ipp!.Text("printer-name"),"DNS-SD and IPP disagree about the name.");
+            await Throws<ArgumentException>(()=> { state.Apply(new([renamed with { DisplayName=new string('中',22) }],false,""),[printer]); return Task.CompletedTask; });
+            Assert(new StateStore(settingsPath).Settings.Printers.Single().DisplayName==reloaded.DisplayName,"A rejected name overwrote the saved settings.");
+            state.Apply(new([selected with { DisplayName="   " }],false,""),[printer]);
+            Assert(new StateStore(settingsPath).Settings.Printers.Single().DisplayName is null,"Reset-to-default was not persisted.");
+            reply=await Send(Request(0x000b));
+            Assert(reply.Ipp?.Text("printer-name")==printer.Name+"- CX Printer");
+        }
+        finally { state.Apply(new([selected],false,""),[printer]); }
+    });
     await Test("Get-Printer-Attributes accepts the printer URI resolved from its advertised SRV target",async ()=>
     {
         var profile=PrinterAdvertisement.Create(printer,state.Settings,[IPAddress.Loopback,IPAddress.IPv6Loopback],"MASTER-TEA-FILE");

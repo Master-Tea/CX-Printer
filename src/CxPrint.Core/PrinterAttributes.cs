@@ -23,7 +23,7 @@ public static class PrinterAttributes
         {
             Text(g,IppTag.Uri,"printer-uri-supported",uri),
             Text(g,IppTag.Uri,"printer-uuid",$"urn:uuid:{StableUuid(printer.Id)}"),
-            Text(g,IppTag.Name,"printer-name",printer.Name), Text(g,IppTag.Text,"printer-info",printer.Name),
+            Text(g,IppTag.Name,"printer-name",shared.EffectiveDisplayName), Text(g,IppTag.Text,"printer-info",shared.EffectiveDisplayName),
             Text(g,IppTag.Text,"printer-location",Environment.MachineName),
             Text(g,IppTag.Text,"printer-make-and-model",printer.Driver),
             Text(g,IppTag.Keyword,"uri-authentication-supported",authentication ? "digest" : "none"),

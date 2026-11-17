@@ -11,9 +11,10 @@ internal static class PrinterAdvertisement
     internal static ServiceProfile Create(PrinterInfo printer,BridgeSettings settings,IEnumerable<IPAddress> addresses,string? machineName=null)
     {
         machineName ??= Environment.MachineName;
-        var clean=TrimUtf8(printer.Name.Replace("\\","-").Replace(".","-"),34);
-        var machine=Product.PrinterId(machineName)[..6];
-        var name=$"{clean} CX-{machine}-{printer.Id[..6]}";
+        var shared=settings.Printers.FirstOrDefault(p=>p.Id==printer.Id) ?? new SharedPrinter(printer.Id,printer.Name);
+        shared.ValidateDisplayName();
+        // Pass a literal label so dots and backslashes in a custom name remain visible.
+        var name=new DomainName(new[]{shared.EffectiveDisplayName});
         var profile=new ServiceProfile(name,"_ipp._tcp",(ushort)settings.Port,addresses);
         // DNS-SD instance labels allow spaces and UTF-8, but clients use the SRV
         // target as a URI hostname. ServiceProfile defaults that target to the

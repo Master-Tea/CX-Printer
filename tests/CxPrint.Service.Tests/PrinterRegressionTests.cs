@@ -90,6 +90,27 @@ internal static class PrinterRegressionTests
                 _=answer.ToByteArray();
             }
         });
+        await test("Custom Apple names roundtrip as one literal DNS-SD label and retain a stable host",async ()=>
+        {
+            foreach (var name in new[]{"财务.打印机\\A😀",new string('A',63),new string('中',21)})
+            {
+                var shared=new SharedPrinter(fixture.Id,fixture.Name,DisplayName:name);
+                var settings=new BridgeSettings { Printers=[shared] };
+                var profile=PrinterAdvertisement.Create(fixture,settings,[IPAddress.Parse("192.0.2.10")],"FILESERVER");
+                Assert(profile.InstanceName.Labels.Single()==name,"The configured name was changed or split into multiple labels.");
+                using var mdns=new MulticastService(); using var discovery=new ServiceDiscovery(mdns);
+                discovery.Advertise(profile);
+                var query=new Message(); query.Questions.Add(new Question { Name=profile.QualifiedServiceName,Type=DnsType.PTR });
+                var answer=await discovery.NameServer.ResolveAsync(query);
+                var decoded=new Message(); decoded.Read(answer.ToByteArray());
+                Assert(decoded.Answers.OfType<PTRRecord>().Any(p=>p.DomainName.Labels.First()==name),"The browse response lost the custom Unicode name.");
+                var packet=new Message { QR=true }; packet.Answers.AddRange(profile.Resources);
+                decoded=new Message(); decoded.Read(packet.ToByteArray());
+                var srv=decoded.Answers.OfType<SRVRecord>().Single();
+                Assert(srv.Name.Labels.First()==name && srv.Target==$"cx-{Product.PrinterId("FILESERVER")}.local","Renaming changed the host identity.");
+                Assert(decoded.Answers.OfType<TXTRecord>().Single().Strings.Contains("rp=printers/"+fixture.Id),"Renaming changed the queue URI.");
+            }
+        });
         await test("English printer and host announce, browse, resolve and withdraw through the production library",async ()=>
         {
             var name="HP Laser NS MFP 1005";

@@ -55,7 +55,7 @@ public sealed class StateStore
                     throw new ArgumentException("更改用户名时需要设置新密码。若只想关闭认证，请保留原用户名。");
                 auth=auth with { Enabled=apply.AuthenticationEnabled,Username=username };
             }
-            next=_settings with { Printers=apply.Printers.ToList(),Authentication=auth,Enabled=apply.Enabled };
+            next=_settings with { Printers=apply.Printers.Select(p=>p with { DisplayName=SharedPrinter.NormalizeDisplayName(p.DisplayName) }).ToList(),Authentication=auth,Enabled=apply.Enabled };
             next.Validate(); Save(next); _settings=next;
         }
         Changed?.Invoke();

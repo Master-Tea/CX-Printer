@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace CxPrint.Core;
 
@@ -52,7 +53,36 @@ public sealed record PrinterInfo(string Id, string Name, string Driver, string P
     public string Summary => Error ?? $"{(IsPdfTest ? "PDF 测试 · " : "")}{Media.Count} 种纸张 · {(Color ? "彩色" : "黑白")} · {(Duplex ? "双面" : "单面")}{(IsPdfTest ? " · 自动保存文件" : "")}";
 }
 
-public sealed record SharedPrinter(string Id, string Name, string? DefaultMedia = null);
+public sealed record SharedPrinter(string Id, string Name, string? DefaultMedia = null, string? DisplayName = null)
+{
+    public const int MaxDisplayNameBytes = 63;
+    private const string DisplayNameSuffix = "- CX Printer";
+    [JsonIgnore] public string EffectiveDisplayName => NormalizeDisplayName(DisplayName) ?? DefaultDisplayName(Name);
+    public static string? NormalizeDisplayName(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    public static string DefaultDisplayName(string printerName)
+    {
+        // A DNS-SD instance is one UTF-8 label. Keep the suffix and whole Unicode runes.
+        var text = new StringBuilder();
+        var source = printerName.Trim();
+        var budget = MaxDisplayNameBytes - Encoding.UTF8.GetByteCount(DisplayNameSuffix);
+        var discriminator = Encoding.UTF8.GetByteCount(source) > budget ? "-" + Product.PrinterId(printerName)[..6] : "";
+        budget -= discriminator.Length;
+        foreach (var rune in source.EnumerateRunes())
+        {
+            if (rune.Utf8SequenceLength > budget) break;
+            text.Append(rune.ToString()); budget -= rune.Utf8SequenceLength;
+        }
+        return text.ToString().TrimEnd() + discriminator + DisplayNameSuffix;
+    }
+    public void ValidateDisplayName()
+    {
+        if (NormalizeDisplayName(DisplayName) is not { } name) return;
+        if (name.Any(c => char.IsControl(c) || c is '\u2028' or '\u2029'))
+            throw new ArgumentException($"{Name} 的 Apple 显示名称不能包含换行或控制字符。");
+        if (Encoding.UTF8.GetByteCount(name) > MaxDisplayNameBytes)
+            throw new ArgumentException($"{Name} 的 Apple 显示名称过长，请缩短（最多 63 个英文字符或 21 个汉字）。");
+    }
+}
 public sealed record AuthSettings(bool Enabled = false, string Username = "", string? ProtectedHa1 = null);
 public sealed record BridgeSettings
 {
@@ -71,6 +101,9 @@ public sealed record BridgeSettings
             throw new ArgumentException("打印机列表无效。");
         if (Printers.Any(p => p.Id != Product.PrinterId(p.Name) || p.Name.Length > 256))
             throw new ArgumentException("打印机标识与名称不匹配。");
+        foreach (var printer in Printers) printer.ValidateDisplayName();
+        if (Printers.Select(p => p.EffectiveDisplayName).Distinct(StringComparer.OrdinalIgnoreCase).Count() != Printers.Count)
+            throw new ArgumentException("共享打印机的 Apple 显示名称不能重复，请为每台打印机设置不同的名称。");
         if (Authentication.Enabled && (string.IsNullOrWhiteSpace(Authentication.Username) || Authentication.ProtectedHa1 is null))
             throw new ArgumentException("开启认证前需要设置打印用户名和密码。");
     }
