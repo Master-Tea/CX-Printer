@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json.schemastore.org/launchsettings.json",
+  "profiles": {
+    "CX Printer Bridge · 本机调试": {
+      "commandName": "Project",
+      "commandLineArgs": "--console",
+      "launchBrowser": false,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}

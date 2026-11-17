@@ -1,0 +1,18 @@
+<Project>
+  <!-- Prefer the installed SDK's native resource compiler on x64 hosts. -->
+  <Target Name="SelectNativeResourceCompiler" BeforeTargets="_GenerateProjectPriFileCore;_CalculateInputsForGenerateProjectPriFileCore" Condition="'$(UseWinUI)' == 'true' and ('$(PROCESSOR_ARCHITECTURE)' == 'AMD64' or '$(PROCESSOR_ARCHITEW6432)' == 'AMD64')">
+    <PropertyGroup>
+      <_InstalledMakePri>$(MSBuildProgramFiles32)\Windows Kits\10\bin\10.0.26100.0\x64\makepri.exe</_InstalledMakePri>
+      <MakePriExeFullPath Condition="Exists('$(_InstalledMakePri)')">$(_InstalledMakePri)</MakePriExeFullPath>
+    </PropertyGroup>
+  </Target>
+  <!-- Scope runtime patch selection to .NET; Windows SDK references use their own version scheme. -->
+  <Target Name="SelectPublishedRuntimePatch" BeforeTargets="ProcessFrameworkReferences" Condition="'$(CXRuntimeVersion)' != ''">
+    <ItemGroup>
+      <KnownFrameworkReference Update="@(KnownFrameworkReference)"
+        Condition="'%(KnownFrameworkReference.TargetFramework)' == 'net8.0' and ('%(KnownFrameworkReference.RuntimeFrameworkName)' == 'Microsoft.NETCore.App' or '%(KnownFrameworkReference.RuntimeFrameworkName)' == 'Microsoft.WindowsDesktop.App' or '%(KnownFrameworkReference.RuntimeFrameworkName)' == 'Microsoft.AspNetCore.App')"
+        LatestRuntimeFrameworkVersion="$(CXRuntimeVersion)" DefaultRuntimeFrameworkVersion="$(CXRuntimeVersion)" />
+      <KnownAppHostPack Update="@(KnownAppHostPack)" Condition="'%(KnownAppHostPack.TargetFramework)' == 'net8.0'" AppHostPackVersion="$(CXRuntimeVersion)" />
+    </ItemGroup>
+  </Target>
+</Project>

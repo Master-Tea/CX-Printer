@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+         xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+         IgnorableNamespaces="uap uap10 rescap">
+  <Identity Name="MasterTea.CXPrinter" Publisher="CN=MasterTea" Version="1.0.0.1" ProcessorArchitecture="x64" />
+  <Properties>
+    <DisplayName>CX Printer</DisplayName>
+    <PublisherDisplayName>MasterTea</PublisherDisplayName>
+    <Description>Windows 打印机共享与 Apple 设备连接管理</Description>
+    <Logo>PackageAssets\StoreLogo.png</Logo>
+  </Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+  <Resources>
+    <Resource Language="zh-CN" />
+    <Resource Language="en-US" />
+  </Resources>
+  <Applications>
+    <Application Id="App" Executable="CX Printer.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements DisplayName="CX Printer" Description="Windows 打印机共享与 Apple 设备连接管理"
+                          BackgroundColor="transparent"
+                          Square150x150Logo="PackageAssets\Square150x150Logo.png"
+                          Square44x44Logo="PackageAssets\Square44x44Logo.png" />
+    </Application>
+  </Applications>
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <rescap:Capability Name="allowElevation" />
+  </Capabilities>
+</Package>

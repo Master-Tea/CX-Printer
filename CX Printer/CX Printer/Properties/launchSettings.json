@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json.schemastore.org/launchsettings.json",
+  "profiles": {
+    "CX Printer · UI + 本机调试服务": {
+      "commandName": "Project",
+      "nativeDebugging": false,
+      "environmentVariables": {
+        "CXPRINTER_DEBUG_SERVICE": "1"
+      }
+    },
+    "CX Printer · 已安装的服务": {
+      "commandName": "Project",
+      "nativeDebugging": false
+    }
+  }
+}

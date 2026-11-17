@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>CX_Printer</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x86;x64;ARM64</Platforms>
+    <RuntimeIdentifier Condition="'$(Platform)' == 'x64'">win-x64</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(Platform)' == 'x86'">win-x86</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(Platform)' == 'ARM64'">win-arm64</RuntimeIdentifier>
+    <UseWinUI>true</UseWinUI>
+    <Nullable>enable</Nullable>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <EnableMsixTooling>false</EnableMsixTooling>
+    <AssemblyName>CX Printer</AssemblyName>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+    <UseSharedCompilation>false</UseSharedCompilation>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Manifest Include="$(ApplicationManifest)" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.7.260224002" />
+    <ProjectReference Include="..\..\src\CxPrint.Windows\CxPrint.Windows.csproj" />
+    <ProjectReference Include="..\..\src\CxPrint.Service\CxPrint.Service.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" Private="false" />
+    <Content Include="Assets\AppIcon.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Assets\AppIcon.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+    <!-- Publish Properties -->
+  <PropertyGroup>
+    <PublishReadyToRun>False</PublishReadyToRun>
+    <PublishTrimmed Condition="'$(Configuration)' == 'Debug'">False</PublishTrimmed>
+    <PublishTrimmed Condition="'$(Configuration)' != 'Debug'">False</PublishTrimmed>
+  </PropertyGroup>
+  <Target Name="PublishWinUIResources" AfterTargets="Publish">
+    <ItemGroup>
+      <_WinUIResources Include="$(TargetDir)*.xbf;$(TargetDir)$(AssemblyName).pri" />
+    </ItemGroup>
+    <Error Condition="!Exists('$(TargetDir)$(AssemblyName).pri')" Text="缺少 WinUI 编译资源，请使用 Visual Studio MSBuild 构建。" />
+    <Copy SourceFiles="@(_WinUIResources)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
+  </Target>
+  <Target Name="CopyBridgeForLocalDebug" AfterTargets="Build" Condition="'$(DesignTimeBuild)' != 'true'">
+    <PropertyGroup><_BridgeDirectory>$(MSBuildThisFileDirectory)..\..\src\CxPrint.Service\bin\$(Platform)\$(Configuration)\$(TargetFramework)\$(RuntimeIdentifier)</_BridgeDirectory></PropertyGroup>
+    <Error Condition="!Exists('$(_BridgeDirectory)\CxPrint.Service.exe')" Text="后台服务尚未生成：$(_BridgeDirectory)" />
+    <ItemGroup><_BridgeFiles Include="$(_BridgeDirectory)\**\*" Exclude="$(_BridgeDirectory)\DebugData\**" Condition="Exists('$(_BridgeDirectory)\CxPrint.Service.exe')" /></ItemGroup>
+    <Copy SourceFiles="@(_BridgeFiles)" DestinationFiles="@(_BridgeFiles->'$(TargetDir)Bridge\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

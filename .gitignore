@@ -1,0 +1,17 @@
+.vs/
+**/bin/
+**/obj/
+.tools/
+artifacts/
+analysis/installer/
+analysis/*.strings.txt
+*.user
+*.cache
+*.pid
+*.pfx
+*.pvk
+*.password
+analysis/printer-capabilities.json
+*.log
+**/DebugData/
+**/DebugUI/

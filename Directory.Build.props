@@ -1,0 +1,12 @@
+<Project>
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>12.0</LangVersion>
+    <Deterministic>true</Deterministic>
+    <Platforms>x64;x86;ARM64</Platforms>
+    <UseSharedCompilation>false</UseSharedCompilation>
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+  </PropertyGroup>
+</Project>

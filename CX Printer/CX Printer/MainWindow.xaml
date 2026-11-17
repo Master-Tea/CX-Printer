@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window x:Class="CX_Printer.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:CX_Printer"
+    xmlns:core="using:CxPrint.Core"
+    Title="CX Printer">
+    <Window.SystemBackdrop><MicaBackdrop /></Window.SystemBackdrop>
+    <Grid x:Name="Root" Loaded="Root_Loaded" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+        <Grid.Resources>
+            <Style x:Key="Card" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="8" />
+                <Setter Property="Padding" Value="24" />
+            </Style>
+            <Style x:Key="Hint" TargetType="TextBlock">
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+                <Setter Property="FontSize" Value="13" />
+            </Style>
+        </Grid.Resources>
+        <NavigationView x:Name="Navigation" PaneDisplayMode="Left" IsBackButtonVisible="Collapsed"
+                        IsSettingsVisible="False" OpenPaneLength="224" SelectionChanged="Navigation_SelectionChanged">
+            <NavigationView.PaneHeader>
+                <StackPanel Margin="16,24,12,28" Spacing="8">
+                    <Image Source="Assets/AppIcon.png" Width="56" Height="56" HorizontalAlignment="Left" AutomationProperties.Name="CX Printer 图标" />
+                    <TextBlock Text="CX Printer" FontSize="22" FontWeight="SemiBold" />
+                    <TextBlock Text="让打印机连接每一台设备" Style="{StaticResource Hint}" />
+                </StackPanel>
+            </NavigationView.PaneHeader>
+            <NavigationView.MenuItems>
+                <NavigationViewItem Content="打印机共享" Tag="printers" IsSelected="True"><NavigationViewItem.Icon><SymbolIcon Symbol="Print" /></NavigationViewItem.Icon></NavigationViewItem>
+                <NavigationViewItem Content="账户与密码" Tag="account"><NavigationViewItem.Icon><SymbolIcon Symbol="Contact" /></NavigationViewItem.Icon></NavigationViewItem>
+                <NavigationViewItem Content="打印记录" Tag="jobs"><NavigationViewItem.Icon><SymbolIcon Symbol="Document" /></NavigationViewItem.Icon></NavigationViewItem>
+                <NavigationViewItem Content="启动与连接" Tag="connection"><NavigationViewItem.Icon><SymbolIcon Symbol="Setting" /></NavigationViewItem.Icon></NavigationViewItem>
+            </NavigationView.MenuItems>
+            <NavigationView.PaneFooter>
+                <StackPanel Margin="16,16,12,24" Spacing="6">
+                    <TextBlock x:Name="RailStatus" Text="正在检查服务…" FontWeight="SemiBold" />
+                    <TextBlock Text="Windows → iPhone · iPad · Mac" Style="{StaticResource Hint}" />
+                </StackPanel>
+            </NavigationView.PaneFooter>
+            <Grid Padding="32,24,32,24" RowSpacing="16">
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <StackPanel Spacing="6"><TextBlock x:Name="PageTitle" Text="打印机共享" Style="{ThemeResource TitleTextBlockStyle}" />
+                        <TextBlock x:Name="PageSubtitle" Text="选择 Windows 打印机，供同一局域网中的 Apple 设备使用。" Style="{StaticResource Hint}" /></StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <ProgressRing x:Name="BusyRing" IsActive="False" Width="20" Height="20" />
+                        <Button Content="刷新" Click="Refresh_Click" />
+                        <Button x:Name="ServiceButton" Content="安装服务" Style="{StaticResource AccentButtonStyle}" Click="Service_Click" />
+                    </StackPanel>
+                </Grid>
+                <InfoBar x:Name="Notice" Grid.Row="1" IsOpen="False" IsClosable="True" />
+                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                    <Grid MaxWidth="1100" HorizontalAlignment="Stretch">
+                        <StackPanel x:Name="PrintersPage" Spacing="16">
+                            <Border Style="{StaticResource Card}">
+                                <Grid ColumnSpacing="20"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <FontIcon Glyph="&#xE701;" FontSize="30" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" VerticalAlignment="Center" />
+                                    <StackPanel Grid.Column="1" Spacing="6"><TextBlock x:Name="SharingTitle" Text="正在检查打印服务" FontSize="20" FontWeight="SemiBold" />
+                                        <TextBlock x:Name="SharingDescription" Text="无需在手机上安装打印驱动。" Style="{StaticResource Hint}" /></StackPanel>
+                                    <ToggleSwitch x:Name="SharingToggle" Grid.Column="2" Header="局域网共享" OnContent="已开启" OffContent="已暂停" IsEnabled="False" Toggled="Sharing_Toggled" />
+                                </Grid>
+                            </Border>
+                            <Border Style="{StaticResource Card}">
+                                <StackPanel Spacing="16">
+                                    <Grid><TextBlock Text="选择要共享的打印机" FontSize="18" FontWeight="SemiBold" /><TextBlock x:Name="PrinterCount" HorizontalAlignment="Right" Style="{StaticResource Hint}" /></Grid>
+                                    <TextBlock Text="勾选后保存；点击打印机可查看纸张尺寸和设置默认纸张。" Style="{StaticResource Hint}" />
+                                    <ListView x:Name="PrintersList" MinHeight="80" SelectionChanged="Printers_SelectionChanged" SelectionMode="Single">
+                                        <ListView.ItemTemplate><DataTemplate x:DataType="local:PrinterRow">
+                                            <Grid Padding="4,10" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                                <CheckBox IsChecked="{x:Bind Shared, Mode=TwoWay}" IsEnabled="{x:Bind Usable}" VerticalAlignment="Center" AutomationProperties.Name="共享此打印机" />
+                                                <StackPanel Grid.Column="1" Spacing="4"><TextBlock Text="{x:Bind Name}" FontWeight="SemiBold" /><TextBlock Text="{x:Bind Summary}" Style="{StaticResource Hint}" /></StackPanel>
+                                            </Grid>
+                                        </DataTemplate></ListView.ItemTemplate>
+                                    </ListView>
+                                    <TextBlock x:Name="NoPrinters" Text="没有检测到打印机。请先在 Windows 设置中安装驱动，并确认 Print Spooler 正在运行。" TextWrapping="Wrap" Visibility="Collapsed" />
+                                    <Button Content="保存共享设置" Click="SavePrinters_Click" Style="{StaticResource AccentButtonStyle}" />
+                                </StackPanel>
+                            </Border>
+                            <Border x:Name="PaperCard" Style="{StaticResource Card}" Visibility="Collapsed">
+                                <StackPanel Spacing="12"><TextBlock Text="纸张与默认尺寸" FontSize="18" FontWeight="SemiBold" />
+                                    <TextBlock x:Name="PaperPrinterName" FontWeight="SemiBold" />
+                                    <ComboBox x:Name="PaperCombo" Header="默认纸张" HorizontalAlignment="Stretch" SelectionChanged="Paper_SelectionChanged">
+                                        <ComboBox.ItemTemplate><DataTemplate x:DataType="core:MediaSize"><TextBlock Text="{x:Bind Description}" /></DataTemplate></ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <TextBlock Text="每一种尺寸均来自 Windows 驱动。Mac 会收到尺寸列表和毫米单位的实际宽高；保存后，已添加的 Mac 打印机可能需要重新添加以刷新缓存。" Style="{StaticResource Hint}" />
+                                    <TextBlock x:Name="PaperDetails" Style="{StaticResource Hint}" IsTextSelectionEnabled="True" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                        <StackPanel x:Name="AccountPage" Spacing="16" Visibility="Collapsed">
+                            <Border Style="{StaticResource Card}"><StackPanel Spacing="20">
+                                <TextBlock Text="打印访问控制" FontSize="20" FontWeight="SemiBold" />
+                                <ToggleSwitch x:Name="AuthToggle" Header="打印时需要用户名与密码" OnContent="需要登录" OffContent="同一局域网内可直接打印" Toggled="Auth_Toggled" />
+                                <TextBlock Text="这是专门用于打印的账户，与 Windows 登录账户无关。在 iPhone、iPad 或 Mac 弹出的打印认证窗口中输入下面的用户名和密码。" Style="{StaticResource Hint}" />
+                                <StackPanel x:Name="CredentialFields" Spacing="16" MaxWidth="480" HorizontalAlignment="Left">
+                                    <TextBox x:Name="UsernameBox" Header="打印用户名" PlaceholderText="例如：printer" MaxLength="64" MinWidth="320" />
+                                    <PasswordBox x:Name="PasswordBox" Header="新密码" PlaceholderText="至少 8 个字符；留空保留现有密码" MaxLength="256" PasswordRevealMode="Peek" />
+                                    <PasswordBox x:Name="ConfirmPasswordBox" Header="确认新密码" PlaceholderText="再次输入新密码" MaxLength="256" PasswordRevealMode="Peek" />
+                                    <TextBlock x:Name="CredentialState" Style="{StaticResource Hint}" />
+                                </StackPanel>
+                                <Button Content="保存账户设置" Click="SaveAccount_Click" Style="{StaticResource AccentButtonStyle}" />
+                            </StackPanel></Border>
+                            <InfoBar IsOpen="True" IsClosable="False" Severity="Informational" Title="凭据如何使用" Message="服务使用摘要认证，不发送明文密码。凭据由 Windows DPAPI 保护；打印内容仍通过局域网 HTTP 传输，请在可信网络中使用。Mac 钥匙串中若保存了旧密码，请更新或移除旧凭据。" />
+                        </StackPanel>
+                        <StackPanel x:Name="JobsPage" Spacing="16" Visibility="Collapsed">
+                            <Border Style="{StaticResource Card}"><StackPanel Spacing="16">
+                                <TextBlock Text="最近 50 个作业" FontSize="20" FontWeight="SemiBold" />
+                                <TextBlock Text="“已提交”表示作业已交给 Windows 队列；纸张、墨量和实际出纸结果请在打印机或 Windows 打印队列中确认。" Style="{StaticResource Hint}" />
+                                <ListView x:Name="JobsList" SelectionMode="None"><ListView.ItemTemplate><DataTemplate x:DataType="local:JobRow">
+                                    <StackPanel Padding="0,12" Spacing="6"><TextBlock Text="{x:Bind Name}" FontWeight="SemiBold" /><TextBlock Text="{x:Bind Message}" TextWrapping="Wrap" /><TextBlock Text="{x:Bind Created}" Style="{StaticResource Hint}" /></StackPanel>
+                                </DataTemplate></ListView.ItemTemplate></ListView>
+                                <TextBlock x:Name="NoJobs" Text="还没有打印记录。" Style="{StaticResource Hint}" />
+                            </StackPanel></Border>
+                        </StackPanel>
+                        <StackPanel x:Name="ConnectionPage" Spacing="16" Visibility="Collapsed">
+                            <Border Style="{StaticResource Card}"><StackPanel Spacing="16">
+                                <TextBlock Text="开机与后台运行" FontSize="20" FontWeight="SemiBold" />
+                                <ToggleSwitch x:Name="AutoStartToggle" Header="开机自动启动打印服务" OnContent="已启用" OffContent="手动启动" Toggled="AutoStart_Toggled" IsEnabled="False" />
+                                <TextBlock Text="启用后由 Windows 服务管理器延迟自动启动，无需登录或打开此界面。服务异常退出时自动重启；网络变化后重新广播。电脑休眠期间无法打印，唤醒后服务会恢复发现。" Style="{StaticResource Hint}" />
+                                <StackPanel Orientation="Horizontal" Spacing="8"><Button Content="修复服务与防火墙" Click="Repair_Click" /><Button Content="停止服务" Click="Stop_Click" /></StackPanel>
+                            </StackPanel></Border>
+                            <Border Style="{StaticResource Card}"><StackPanel Spacing="16">
+                                <TextBlock Text="连接诊断" FontSize="20" FontWeight="SemiBold" />
+                                <TextBlock x:Name="NetworkDetails" Text="正在读取连接信息…" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                                <StackPanel Orientation="Horizontal" Spacing="8"><Button Content="检测连接并重新广播" Click="Diagnose_Click" /><Button Content="复制诊断信息" Click="CopyDiagnostics_Click" /></StackPanel>
+                                <TextBlock Text="请让电脑和 Apple 设备连接同一路由器，将 Windows 网络设为“专用网络”，并关闭路由器的客户端隔离。跨 VLAN 需要路由器转发 mDNS；仅开放 IPP 端口不会自动发现打印机。" Style="{StaticResource Hint}" />
+                                <TextBlock Text="服务只读取本机可见的打印队列。按用户安装的网络打印机可能需要改为全机安装；Microsoft Print to PDF 等需要交互保存的虚拟打印机不适合后台共享。" Style="{StaticResource Hint}" />
+                            </StackPanel></Border>
+                            <Border Style="{StaticResource Card}"><StackPanel Spacing="12"><TextBlock Text="服务管理" FontWeight="SemiBold" />
+                                <TextBlock Text="卸载会移除本程序的服务和防火墙规则，保留设置与诊断记录。" Style="{StaticResource Hint}" />
+                                <Button Content="卸载打印服务…" Click="Remove_Click" />
+                            </StackPanel></Border>
+                        </StackPanel>
+                    </Grid>
+                </ScrollViewer>
+            </Grid>
+        </NavigationView>
+    </Grid>
+</Window>
