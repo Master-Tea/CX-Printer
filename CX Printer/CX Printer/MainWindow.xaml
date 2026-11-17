@@ -43,19 +43,23 @@
                 </StackPanel>
             </NavigationView.PaneFooter>
             <Grid Padding="32,24,32,24" RowSpacing="16">
-                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
                 <Grid ColumnSpacing="16">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                     <StackPanel Spacing="6"><TextBlock x:Name="PageTitle" Text="打印机共享" Style="{ThemeResource TitleTextBlockStyle}" />
                         <TextBlock x:Name="PageSubtitle" Text="选择 Windows 打印机，供同一局域网中的 Apple 设备使用。" Style="{StaticResource Hint}" /></StackPanel>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                         <ProgressRing x:Name="BusyRing" IsActive="False" Width="20" Height="20" />
-                        <Button Content="刷新" Click="Refresh_Click" />
+                        <Button x:Name="RefreshButton" Content="刷新" Click="Refresh_Click" />
                         <Button x:Name="ServiceButton" Content="安装服务" Style="{StaticResource AccentButtonStyle}" Click="Service_Click" />
                     </StackPanel>
                 </Grid>
-                <InfoBar x:Name="Notice" Grid.Row="1" IsOpen="False" IsClosable="True" />
-                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                <StackPanel x:Name="OperationPanel" Grid.Row="1" Spacing="8" Visibility="Collapsed">
+                    <TextBlock x:Name="OperationStatus" Style="{StaticResource Hint}" />
+                    <ProgressBar x:Name="OperationProgress" IsIndeterminate="True" Minimum="0" Maximum="100" />
+                </StackPanel>
+                <InfoBar x:Name="Notice" Grid.Row="2" IsOpen="False" IsClosable="True" />
+                <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto">
                     <Grid MaxWidth="1100" HorizontalAlignment="Stretch">
                         <StackPanel x:Name="PrintersPage" Spacing="16">
                             <Border Style="{StaticResource Card}">
@@ -70,6 +74,11 @@
                                 <StackPanel Spacing="16">
                                     <Grid><TextBlock Text="选择要共享的打印机" FontSize="18" FontWeight="SemiBold" /><TextBlock x:Name="PrinterCount" HorizontalAlignment="Right" Style="{StaticResource Hint}" /></Grid>
                                     <TextBlock Text="勾选后保存；点击打印机可查看纸张尺寸和设置默认纸张。" Style="{StaticResource Hint}" />
+                                    <Grid x:Name="PrinterScanPanel" ColumnSpacing="8" Visibility="Collapsed">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <ProgressRing x:Name="PrinterScanRing" IsActive="False" Width="18" Height="18" VerticalAlignment="Top" />
+                                        <TextBlock x:Name="PrinterScanStatus" Grid.Column="1" Style="{StaticResource Hint}" />
+                                    </Grid>
                                     <ListView x:Name="PrintersList" MinHeight="80" SelectionChanged="Printers_SelectionChanged" SelectionMode="Single">
                                         <ListView.ItemTemplate><DataTemplate x:DataType="local:PrinterRow">
                                             <Grid Padding="4,10" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
@@ -123,6 +132,8 @@
                                 <TextBlock Text="开机与后台运行" FontSize="20" FontWeight="SemiBold" />
                                 <ToggleSwitch x:Name="AutoStartToggle" Header="开机自动启动打印服务" OnContent="已启用" OffContent="手动启动" Toggled="AutoStart_Toggled" IsEnabled="False" />
                                 <TextBlock Text="启用后由 Windows 服务管理器延迟自动启动，无需登录或打开此界面。服务异常退出时自动重启；网络变化后重新广播。电脑休眠期间无法打印，唤醒后服务会恢复发现。" Style="{StaticResource Hint}" />
+                                <TextBlock Text="最小化窗口会收起到系统托盘。双击托盘图标恢复窗口，右键可显示窗口或退出；退出管理界面后，已安装的打印服务仍会运行。" Style="{StaticResource Hint}" />
+                                <Button x:Name="MinimizeToTrayButton" Content="最小化到系统托盘" Click="MinimizeToTray_Click" />
                                 <StackPanel Orientation="Horizontal" Spacing="8"><Button Content="修复服务与防火墙" Click="Repair_Click" /><Button Content="停止服务" Click="Stop_Click" /></StackPanel>
                             </StackPanel></Border>
                             <Border Style="{StaticResource Card}"><StackPanel Spacing="16">
@@ -130,7 +141,7 @@
                                 <TextBlock x:Name="NetworkDetails" Text="正在读取连接信息…" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
                                 <StackPanel Orientation="Horizontal" Spacing="8"><Button Content="检测连接并重新广播" Click="Diagnose_Click" /><Button Content="复制诊断信息" Click="CopyDiagnostics_Click" /></StackPanel>
                                 <TextBlock Text="请让电脑和 Apple 设备连接同一路由器，将 Windows 网络设为“专用网络”，并关闭路由器的客户端隔离。跨 VLAN 需要路由器转发 mDNS；仅开放 IPP 端口不会自动发现打印机。" Style="{StaticResource Hint}" />
-                                <TextBlock Text="服务只读取本机可见的打印队列。按用户安装的网络打印机可能需要改为全机安装；Microsoft Print to PDF 等需要交互保存的虚拟打印机不适合后台共享。" Style="{StaticResource Hint}" />
+                                <TextBlock Text="服务只读取本机可见的打印队列。按用户安装的网络打印机可能需要改为全机安装。Microsoft Print to PDF 可用于共享测试，文件自动保存在 %ProgramData%\CX Printer\TestOutput，需管理员权限查看；Fax、XPS 等交互队列不支持后台共享。" Style="{StaticResource Hint}" />
                             </StackPanel></Border>
                             <Border Style="{StaticResource Card}"><StackPanel Spacing="12"><TextBlock Text="服务管理" FontWeight="SemiBold" />
                                 <TextBlock Text="卸载会移除本程序的服务和防火墙规则，保留设置与诊断记录。" Style="{StaticResource Hint}" />

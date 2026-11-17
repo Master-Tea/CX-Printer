@@ -134,7 +134,7 @@ public sealed class JobManager : ServiceWorker
             {
                 var printer=_readPrinter(job.PrinterName);
                 var pages=await _backend.PrintAsync(DocumentFor(id),job.Format,printer,job.Options,job.Info.Name,cancel.Token);
-                Update(id,9,"已提交到 Windows 打印队列；实际出纸状态请检查打印机。",pages);
+                Update(id,9,printer.IsPdfTest ? $"PDF 测试文件已保存到 {Paths.TestOutput}（按文件时间查找）。" : "已提交到 Windows 打印队列；实际出纸状态请检查打印机。",pages);
             }
             catch (OperationCanceledException)
             { Update(id,stoppingToken.IsCancellationRequested ? 8 : 7,"处理已中止，请检查打印机后再决定是否重打。"); }

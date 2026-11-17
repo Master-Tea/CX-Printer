@@ -59,10 +59,12 @@ public sealed class ControlWorker(StateStore state,PrinterMonitor printers,JobMa
                         case "status": reply=new(true,Status:GetStatus()); break;
                         case "apply":
                             if (request.Settings is null) throw new ArgumentException("缺少设置。");
-                            await printers.RefreshAsync(deadline.Token); state.Apply(request.Settings,printers.Printers);
+                            if (request.Settings.Printers.Any(selected=>!printers.Printers.Any(p=>p.Id==selected.Id && p.Usable)) && printers.Refreshing)
+                                throw new InvalidOperationException("后台正在读取所选打印机的驱动与纸张，请等该打印机读取完成后再保存。");
+                            state.Apply(request.Settings,printers.Printers);
                             reply=new(true,Status:GetStatus()); break;
                         case "rescan":
-                            await printers.RefreshAsync(deadline.Token); discovery.Reannounce();
+                            printers.RequestRefresh(); discovery.Reannounce();
                             reply=new(true,Status:GetStatus()); break;
                         default: reply=new(false,"不支持的本地控制命令。"); break;
                     }
@@ -81,10 +83,11 @@ public sealed class ControlWorker(StateStore state,PrinterMonitor printers,JobMa
     private BridgeStatus GetStatus()
     {
         var settings=state.Settings;
+        var scan=printers.Snapshot;
         using var key=Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\"+Product.ServiceName);
         return new(true,settings.Enabled,settings.Port,(int?)key?.GetValue("Start")==2,
             settings.Authentication.Enabled,settings.Authentication.Username,settings.Authentication.ProtectedHa1 is not null,
-            printers.Printers,settings.Printers,jobs.Snapshot(),Paths.DebugMode ? ["127.0.0.1"] : DiscoveryWorker.Addresses().Select(a=>a.ToString()).ToArray(),discovery.Status,
-            printers.Refreshing ? "正在读取 Windows 打印队列和纸张能力…" : null);
+            scan.Printers,settings.Printers,jobs.Snapshot(),Paths.DebugMode ? ["127.0.0.1"] : DiscoveryWorker.Addresses().Select(a=>a.ToString()).ToArray(),discovery.Status,
+            scan.Error,scan.Refreshing,scan.Message);
     }
 }

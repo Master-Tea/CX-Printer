@@ -17,8 +17,12 @@ public interface IPrintBackend
 public sealed class WindowsPrintBackend : IPrintBackend
 {
     public async Task<int> PrintAsync(string filename,string format,PrinterInfo printer,PrintOptions options,string jobName,CancellationToken cancellation)
+        =>await PrintAsync(filename,format,printer,options,jobName,cancellation,Paths.TestOutput);
+    internal async Task<int> PrintAsync(string filename,string format,PrinterInfo printer,PrintOptions options,string jobName,
+        CancellationToken cancellation,string testOutputDirectory)
     {
         var pages=new List<string>();
+        string? output=null;
         var work=Path.Combine(Path.GetDirectoryName(filename)!,"rendered"); Directory.CreateDirectory(work);
         try
         {
@@ -27,10 +31,18 @@ public sealed class WindowsPrintBackend : IPrintBackend
             cancellation.ThrowIfCancellationRequested();
             // Capabilities are read again before spooling to avoid stale driver IDs after a driver update.
             var fresh=PrinterCatalog.Read(printer.Name);
+            if (!fresh.Usable) throw new InvalidOperationException(fresh.Error ?? "打印队列不可用。");
             var media=fresh.Media.FirstOrDefault(m=>m.Key==options.Media)
                 ?? throw new InvalidOperationException("驱动纸张能力已变化，请重新选择纸张。");
-            await Task.Run(()=>PrintPages(pages,fresh,media,options,jobName,cancellation),cancellation);
+            if (fresh.IsPdfTest) output=CreateTestOutputPath(testOutputDirectory);
+            await Task.Run(()=>PrintPages(pages,fresh,media,options,jobName,cancellation,output),cancellation);
+            if (output is not null) await WaitForTestOutputAsync(output,cancellation);
             return pages.Count;
+        }
+        catch
+        {
+            if (output is not null) { try { File.Delete(output); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
+            throw;
         }
         finally
         {
@@ -113,11 +125,47 @@ public sealed class WindowsPrintBackend : IPrintBackend
         if (Directory.EnumerateFiles(work).Sum(p=>new FileInfo(p).Length)>1_073_741_824)
             throw new IOException("作业渲染缓存超过 1 GB 限制。");
     }
-    private static void PrintPages(List<string> pages,PrinterInfo printer,MediaSize media,PrintOptions options,string jobName,CancellationToken cancellation)
+    internal static string CreateTestOutputPath(string directory)
+    {
+        directory=Path.GetFullPath(directory); Directory.CreateDirectory(directory);
+        if ((File.GetAttributes(directory)&FileAttributes.ReparsePoint)!=0) throw new IOException("PDF 测试输出目录不能是链接。");
+        var files=Directory.EnumerateFiles(directory,"CX-Test-*.pdf").Select(p=>new FileInfo(p)).ToArray();
+        if (files.Length>=100 || files.Sum(f=>f.Length)>=1_073_741_824)
+            throw new IOException($"PDF 测试输出已达 100 个文件或 1 GB，请清理 {directory} 后重试。");
+        return Path.Combine(directory,$"CX-Test-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}.pdf");
+    }
+    private static async Task WaitForTestOutputAsync(string output,CancellationToken cancellation)
+    {
+        using var timeout=CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        try
+        {
+            while (true)
+            {
+                try
+                {
+                    using var file=new FileStream(output,FileMode.Open,FileAccess.Read,FileShare.Read);
+                    var signature=new byte[5];
+                    if (file.Read(signature)==5 && signature.AsSpan().SequenceEqual("%PDF-"u8)) return;
+                }
+                catch (IOException) { }
+                await Task.Delay(200,timeout.Token);
+            }
+        }
+        catch (OperationCanceledException) when (!cancellation.IsCancellationRequested)
+        { throw new TimeoutException("Microsoft Print to PDF 未生成测试文件，请检查 Windows 打印队列。"); }
+    }
+    private static void PrintPages(List<string> pages,PrinterInfo printer,MediaSize media,PrintOptions options,string jobName,
+        CancellationToken cancellation,string? output=null)
     {
         using var document=new PrintDocument();
         document.PrinterSettings.PrinterName=printer.Name;
         if (!document.PrinterSettings.IsValid) throw new InvalidOperationException("打印队列不可用。");
+        if (output is not null)
+        {
+            document.PrinterSettings.PrintToFile=true;
+            document.PrinterSettings.PrintFileName=output;
+        }
         var paper=document.PrinterSettings.PaperSizes.Cast<PaperSize>().FirstOrDefault(p=>p.RawKind==media.WindowsPaperId)
             ?? throw new InvalidOperationException("驱动未找到对应的纸张 ID；已阻止回退成 Letter。");
         document.DocumentName=jobName;

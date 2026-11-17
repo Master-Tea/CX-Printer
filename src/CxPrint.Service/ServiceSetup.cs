@@ -4,34 +4,58 @@ using System.Security.Principal;
 using System.ServiceProcess;
 using System.Text.Json;
 using CxPrint.Core;
+using CxPrint.Windows;
 
 namespace CxPrint.Service;
 
 public static class ServiceSetup
 {
     public static bool IsCommand(string arg)=>arg is "--install" or "--repair" or "--start" or "--stop" or "--enable-autostart" or "--disable-autostart" or "--remove";
+    internal static (string Command,string? Owner,string? ProgressPipe) ParseArguments(string[] args)
+    {
+        if (args.Length==0 || !IsCommand(args[0])) throw new ArgumentException("无效的服务管理参数。");
+        string? owner=null,pipe=null;
+        for (var i=1;i<args.Length;i++)
+        {
+            var option=args[i];
+            if (++i>=args.Length) throw new ArgumentException("服务管理参数缺少值。");
+            if (option=="--owner" && args[0]=="--install" && owner is null) owner=args[i];
+            else if (option=="--progress-pipe" && pipe is null && SetupProgressListener.IsValidName(args[i])) pipe=args[i];
+            else throw new ArgumentException("无效的服务管理参数。");
+        }
+        return (args[0],owner,pipe);
+    }
     public static async Task<int> RunAsync(string[] args)
     {
+        SetupProgressWriter? progress=null;
+        async Task Report(int percent,string message)
+        {
+            Console.WriteLine(message);
+            if (progress is not null) await progress.ReportAsync(new(percent,message));
+        }
         try
         {
+            var options=ParseArguments(args);
+            progress=await SetupProgressWriter.ConnectAsync(options.ProgressPipe);
+            await Report(2,"正在检查管理员权限与安装目录…");
             using var identity=WindowsIdentity.GetCurrent();
             if (!new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator)) throw new UnauthorizedAccessException("此操作需要管理员权限。");
-            var command=args[0];
-            if (!IsCommand(command) || args.Length!=1 && !(command=="--install" && args.Length==3 && args[1]=="--owner"))
-                throw new ArgumentException("无效的服务管理参数。");
+            var command=options.Command;
             var programFiles=Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
             var destination=Path.Combine(programFiles,"CX Printer","Bridge");
             var installedExe=Path.Combine(destination,"CxPrint.Service.exe");
             if (command=="--install")
             {
-                var owner=args.Length==3 ? new SecurityIdentifier(args[2]) : identity.User!;
+                var owner=options.Owner is not null ? new SecurityIdentifier(options.Owner) : identity.User!;
                 if (!owner.IsAccountSid()) throw new ArgumentException("服务管理者必须是有效的 Windows 用户 SID。");
                 _=owner.Translate(typeof(NTAccount));
                 VerifyAncestors(destination); VerifyTrustedTree(destination); SecureDirectory(destination,publicRead:true);
                 VerifyAncestors(Paths.Root); VerifyTrustedTree(Paths.Root); SecureDirectory(Paths.Root,publicRead:false);
-                Directory.CreateDirectory(Paths.Logs); Directory.CreateDirectory(Paths.Spool);
-                if (Exists()) await Stop();
-                CopyTree(AppContext.BaseDirectory,destination);
+                Directory.CreateDirectory(Paths.Logs); Directory.CreateDirectory(Paths.Spool); Directory.CreateDirectory(Paths.TestOutput);
+                if (Exists()) { await Report(10,"正在停止旧版后台服务…"); await Stop(); }
+                await Report(15,"正在准备后台组件…");
+                await CopyTree(AppContext.BaseDirectory,destination,Report);
+                await Report(55,"正在保存设置与配置文件权限…");
                 if (!File.Exists(Paths.Settings))
                 {
                     var settings=new BridgeSettings { OwnerSid=owner.Value };
@@ -44,36 +68,44 @@ public static class ServiceSetup
                     existing.Validate(); // Reinstallation keeps printer selections and authentication.
                 }
                 SecureTree(destination,publicRead:true); SecureTree(Paths.Root,publicRead:false);
+                await Report(60,"正在注册 Windows 打印后台服务…");
                 if (!Exists()) await Sc("create",Product.ServiceName,"binPath=",'"'+installedExe+'"',"start=","delayed-auto","depend=","Spooler","DisplayName=","CX Printer Bridge");
                 else await Sc("config",Product.ServiceName,"binPath=",'"'+installedExe+'"',"start=","delayed-auto","depend=","Spooler");
-                await Repair(installedExe); await Start();
+                await Repair(installedExe,Report); await Report(90,"正在启动后台服务与 Print Spooler…"); await Start();
             }
-            else if (command=="--repair") { await Repair(installedExe); await Start(); }
-            else if (command=="--start") await Start();
-            else if (command=="--stop") await Stop();
-            else if (command=="--enable-autostart") { await Sc("config",Product.ServiceName,"start=","delayed-auto"); await Recovery(); }
-            else if (command=="--disable-autostart") await Sc("config",Product.ServiceName,"start=","demand");
+            else if (command=="--repair") { await Repair(installedExe,Report); await Report(90,"正在启动后台服务…"); await Start(); }
+            else if (command=="--start") { await Report(20,"正在启动后台服务与 Print Spooler…"); await Start(); }
+            else if (command=="--stop") { await Report(20,"正在停止后台服务…"); await Stop(); }
+            else if (command=="--enable-autostart") { await Report(30,"正在启用延迟自动启动与故障恢复…"); await Sc("config",Product.ServiceName,"start=","delayed-auto"); await Recovery(); }
+            else if (command=="--disable-autostart") { await Report(30,"正在关闭服务自动启动…"); await Sc("config",Product.ServiceName,"start=","demand"); }
             else if (command=="--remove")
             {
+                await Report(20,"正在停止并卸载后台服务…");
                 if (Exists()) { await Stop(); await Sc("delete",Product.ServiceName); }
+                await Report(70,"正在移除本软件的防火墙规则…");
                 await Netsh("advfirewall","firewall","delete","rule","name=CX Printer IPP");
                 await Netsh("advfirewall","firewall","delete","rule","name=CX Printer mDNS");
             }
+            await Report(100,"服务配置已完成。");
             return 0;
         }
         catch (Exception ex)
         {
+            if (progress is not null) await progress.ReportAsync(new(0,ex.Message,Failed:true));
             try { VerifyAncestors(Paths.Root); VerifyTrustedTree(Paths.Root); SecureDirectory(Paths.Root,publicRead:false); Directory.CreateDirectory(Paths.Logs); File.AppendAllText(Path.Combine(Paths.Logs,"setup.log"),$"{DateTimeOffset.Now:O} {args.FirstOrDefault()} {ex}{Environment.NewLine}"); } catch { }
             Console.Error.WriteLine(ex.Message); return 1;
         }
+        finally { if (progress is not null) await progress.DisposeAsync(); }
     }
-    private static async Task Repair(string installedExe)
+    private static async Task Repair(string installedExe,Func<int,string,Task> report)
     {
         if (!File.Exists(installedExe)) throw new FileNotFoundException("请先安装服务。",installedExe);
+        await report(65,"正在检查服务配置与故障恢复策略…");
         VerifyAncestors(installedExe); VerifyTrustedTree(Path.GetDirectoryName(installedExe)!); VerifyTrustedTree(Paths.Root);
         await Sc("config",Product.ServiceName,"binPath=",'"'+installedExe+'"',"depend=","Spooler");
         await Sc("description",Product.ServiceName,"将 Windows 打印队列通过 IPP / DNS-SD 提供给局域网中的 Apple 设备。");
         await Recovery();
+        await report(75,"正在配置专用网络和域网络的打印与发现防火墙规则…");
         await Netsh("advfirewall","firewall","delete","rule","name=CX Printer IPP");
         await Netsh("advfirewall","firewall","delete","rule","name=CX Printer mDNS");
         var settings=JsonSerializer.Deserialize<BridgeSettings>(File.ReadAllText(Paths.Settings),Product.Json)!;
@@ -175,21 +207,35 @@ public static class ServiceSetup
         }
         foreach (var child in Directory.EnumerateDirectories(path)) { VerifyAncestors(child); SecureTree(child,publicRead); }
     }
-    private static void CopyTree(string source,string destination)
+    private static async Task CopyTree(string source,string destination,Func<int,string,Task> report)
     {
         if (Path.GetFullPath(source).TrimEnd('\\').Equals(Path.GetFullPath(destination).TrimEnd('\\'),StringComparison.OrdinalIgnoreCase)) return;
+        var files=SourceFiles(source).ToArray(); var previous=-1;
+        for (var index=0;index<files.Length;index++)
+        {
+            var file=files[index];
+            var target=Path.Combine(destination,Path.GetRelativePath(source,file)); VerifyAncestors(target);
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            if (File.Exists(target) && (File.GetAttributes(target)&FileAttributes.ReparsePoint)!=0) throw new IOException("目标文件是链接。");
+            var from=new FileInfo(file); var to=new FileInfo(target);
+            // Runtime components are unchanged in most upgrades; avoid recopying them.
+            if (!to.Exists || from.Length!=to.Length || from.LastWriteTimeUtc!=to.LastWriteTimeUtc) File.Copy(file,target,true);
+            var percent=15+40*(index+1)/files.Length;
+            if (percent!=previous) { await report(percent,$"正在复制后台组件（{index+1}/{files.Length}）：{Path.GetFileName(file)}"); previous=percent; }
+        }
+    }
+    private static IEnumerable<string> SourceFiles(string source)
+    {
         foreach (var file in Directory.EnumerateFiles(source))
         {
             if ((File.GetAttributes(file)&FileAttributes.ReparsePoint)!=0) throw new IOException("不允许从链接文件安装。");
-            var target=Path.Combine(destination,Path.GetFileName(file)); VerifyAncestors(target);
-            if (File.Exists(target) && (File.GetAttributes(target)&FileAttributes.ReparsePoint)!=0) throw new IOException("目标文件是链接。");
-            File.Copy(file,target,true);
+            yield return file;
         }
         foreach (var directory in Directory.EnumerateDirectories(source))
         {
             if (Path.GetFileName(directory) is "DebugData" or "DebugUI") continue;
             if ((File.GetAttributes(directory)&FileAttributes.ReparsePoint)!=0) throw new IOException("不允许从链接目录安装。");
-            var next=Path.Combine(destination,Path.GetFileName(directory)); VerifyAncestors(next); Directory.CreateDirectory(next); CopyTree(directory,next);
+            foreach (var file in SourceFiles(directory)) yield return file;
         }
     }
 }

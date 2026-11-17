@@ -6,10 +6,11 @@ namespace CxPrint.Windows;
 
 public static class PrinterCatalog
 {
+    public static IReadOnlyList<string> Names()=>PrinterSettings.InstalledPrinters.Cast<string>().ToArray();
     public static IReadOnlyList<PrinterInfo> Enumerate()
     {
         var result=new List<PrinterInfo>();
-        foreach (string name in PrinterSettings.InstalledPrinters)
+        foreach (var name in Names())
         {
             try { result.Add(Read(name)); }
             catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -44,14 +45,24 @@ public static class PrinterCatalog
             }
             finally { ClosePrinter(handle); }
         }
+        var interactive=!PrinterInfo.IsMicrosoftPdfDriver(driver) &&
+            (port.Equals("PORTPROMPT:",StringComparison.OrdinalIgnoreCase) || port.Equals("FILE:",StringComparison.OrdinalIgnoreCase) ||
+            driver.Equals("Microsoft Shared Fax Driver",StringComparison.OrdinalIgnoreCase));
+        // Microsoft Print to PDF is the explicit test exception: the backend supplies
+        // a fixed output filename. Other interactive drivers cannot run in a service.
+        if (interactive) return new(Product.PrinterId(name),name,driver,port,false,false,[],"","此队列需要交互操作，无法在后台服务中共享。");
         var native=ReadMedia(name,port);
         var media=new List<MediaSize>();
+        var seen=new HashSet<string>();
         foreach (PaperSize paper in settings.PaperSizes)
         {
             var dimensions=native.GetValueOrDefault(paper.RawKind);
             var width=dimensions.W>0 ? dimensions.W : (int)Math.Round(paper.Width*25.4);
             var height=dimensions.H>0 ? dimensions.H : (int)Math.Round(paper.Height*25.4);
             if (width<=0 || height<=0) continue;
+            var keyword=MediaSize.Keyword(width,height);
+            // Many drivers expose aliases for one size; query its printable area only once.
+            if (!seen.Add(keyword)) continue;
             var margins=(L:635,T:635,R:635,B:635);
             try
             {
@@ -61,7 +72,7 @@ public static class PrinterCatalog
                     Math.Max(0,width-(int)Math.Round(area.Right*25.4)),Math.Max(0,height-(int)Math.Round(area.Bottom*25.4)));
             }
             catch (Exception ex) when (ex is InvalidPrinterException or System.ComponentModel.Win32Exception) { }
-            media.Add(new(MediaSize.Keyword(width,height),paper.PaperName,width,height,paper.RawKind,
+            media.Add(new(keyword,paper.PaperName,width,height,paper.RawKind,
                 Math.Clamp(margins.L,0,width/2),Math.Clamp(margins.T,0,height/2),Math.Clamp(margins.R,0,width/2),Math.Clamp(margins.B,0,height/2)));
         }
         media=media.DistinctBy(m=>m.Key).ToList();
@@ -70,10 +81,7 @@ public static class PrinterCatalog
         var def=media.FirstOrDefault(m=>m.WindowsPaperId==defaultPaper.RawKind)
             ?? media.FirstOrDefault(m=>Math.Abs(m.Width-defaultPaper.Width*25.4)<60 && Math.Abs(m.Height-defaultPaper.Height*25.4)<60)
             ?? media[0];
-        var interactive=port.Equals("PORTPROMPT:",StringComparison.OrdinalIgnoreCase) || port.Equals("FILE:",StringComparison.OrdinalIgnoreCase) ||
-            driver.Equals("Microsoft Shared Fax Driver",StringComparison.OrdinalIgnoreCase);
-        return new(Product.PrinterId(name),name,driver,port,settings.SupportsColor,settings.CanDuplex,media,def.Key,
-            interactive ? "此队列需要交互操作，无法在后台服务中共享。" : null);
+        return new(Product.PrinterId(name),name,driver,port,settings.SupportsColor,settings.CanDuplex,media,def.Key);
     }
     private static Dictionary<int,(int W,int H)> ReadMedia(string printer,string port)
     {

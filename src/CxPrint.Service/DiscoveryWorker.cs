@@ -9,24 +9,17 @@ using Makaretu.Dns;
 
 namespace CxPrint.Service;
 
-public sealed class PrinterMonitor(ILogger<PrinterMonitor> logger,Func<IReadOnlyList<PrinterInfo>>? enumerate=null) : ServiceWorker
+public sealed class PrinterMonitor(ILogger<PrinterMonitor> logger,PrinterScanner? scanner=null) : ServiceWorker
 {
-    private readonly Func<IReadOnlyList<PrinterInfo>> _enumerate=enumerate ?? PrinterCatalog.Enumerate;
-    private IReadOnlyList<PrinterInfo> _printers=[];
-    private readonly SemaphoreSlim _refresh=new(1,1);
-    public IReadOnlyList<PrinterInfo> Printers => Volatile.Read(ref _printers);
-    public bool Refreshing=>_refresh.CurrentCount==0;
-    public async Task RefreshAsync(CancellationToken cancellation=default)
+    private readonly PrinterScanner _scanner=scanner ?? new(onRead:(name,elapsed)=>
     {
-        if (!await _refresh.WaitAsync(0,cancellation)) return;
-        try
-        {
-            var printers=await Task.Run(_enumerate,cancellation);
-            Volatile.Write(ref _printers,printers);
-        }
-        catch (Exception ex) { logger.LogWarning(ex,"读取 Windows 打印队列失败，将自动重试。"); }
-        finally { _refresh.Release(); }
-    }
+        if (elapsed>TimeSpan.FromSeconds(5)) logger.LogWarning("打印机 {Printer} 的驱动与纸张读取耗时 {Seconds:F1} 秒。",name,elapsed.TotalSeconds);
+    });
+    public PrinterScanSnapshot Snapshot=>_scanner.Snapshot;
+    public IReadOnlyList<PrinterInfo> Printers=>Snapshot.Printers;
+    public bool Refreshing=>Snapshot.Refreshing;
+    public Task RefreshAsync(CancellationToken cancellation=default)=>_scanner.RefreshAsync(cancellation);
+    public void RequestRefresh()=>_ = RefreshAsync();
     protected override async Task RunAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
@@ -85,22 +78,7 @@ public sealed class DiscoveryWorker(StateStore state,PrinterMonitor printers,ILo
                             _mdns=new MulticastService(); _discovery=new ServiceDiscovery(_mdns);
                             foreach (var printer in available)
                             {
-                                var name=InstanceLabel(printer.Name,printer.Id);
-                                var profile=new ServiceProfile(name,"_ipp._tcp",(ushort)settings.Port,addresses);
-                                profile.Subtypes.Add("_universal");
-                                profile.AddProperty("rp","printers/"+printer.Id);
-                                profile.AddProperty("ty",TrimUtf8(printer.Driver,252));
-                                profile.AddProperty("product","("+TrimUtf8(printer.Driver,245)+")");
-                                profile.AddProperty("note",TrimUtf8("CX Printer · "+Environment.MachineName,250));
-                                profile.AddProperty("pdl",string.Join(',',PrinterAttributes.Formats.Where(f=>f!="application/octet-stream")));
-                                profile.AddProperty("URF",printer.Color ? "W8,SRGB24,RS300,CP1" : "W8,RS300,CP1");
-                                profile.AddProperty("Color",printer.Color ? "T" : "F");
-                                profile.AddProperty("Duplex",printer.Duplex ? "T" : "F");
-                                profile.AddProperty("qtotal","1"); profile.AddProperty("priority","0");
-                                profile.AddProperty("UUID",PrinterAttributes.StableUuid(printer.Id));
-                                // No certification claims: advertise only implemented IPP capabilities.
-                                if (settings.Authentication.Enabled) profile.AddProperty("air","username,password");
-                                foreach (var record in profile.Resources) record.TTL=TimeSpan.FromSeconds(120);
+                                var profile=PrinterAdvertisement.Create(printer,settings,addresses);
                                 _discovery.Advertise(profile); _profiles.Add(profile);
                             }
                             _mdns.Start(); _status=$"已广播 {available.Length} 台打印机 · IPv4 / IPv6";
@@ -134,21 +112,5 @@ public sealed class DiscoveryWorker(StateStore state,PrinterMonitor printers,ILo
     {
         try { _discovery?.Unadvertise(); } catch (Exception ex) { logger.LogDebug(ex,"发送 goodbye 失败。"); }
         _discovery?.Dispose(); _mdns?.Dispose(); _discovery=null; _mdns=null; _profiles.Clear();
-    }
-    private static string TrimUtf8(string value,int limit)
-    {
-        var text=new StringBuilder(); var bytes=0;
-        foreach (var rune in value.EnumerateRunes())
-        {
-            if (bytes+rune.Utf8SequenceLength>limit) break;
-            text.Append(rune.ToString()); bytes+=rune.Utf8SequenceLength;
-        }
-        return text.ToString();
-    }
-    private static string InstanceLabel(string name,string id)
-    {
-        var clean=TrimUtf8(name.Replace("\\","-").Replace(".","-"),34);
-        var machine=Product.PrinterId(Environment.MachineName)[..6];
-        return $"{clean} CX-{machine}-{id[..6]}";
     }
 }

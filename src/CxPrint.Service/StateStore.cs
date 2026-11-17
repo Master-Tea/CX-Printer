@@ -13,6 +13,7 @@ public static class Paths
     public static string Root => _debugRoot ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),"CX Printer");
     public static string Settings => Path.Combine(Root,"settings.json");
     public static string Spool => Path.Combine(Root,"Spool");
+    public static string TestOutput => Path.Combine(Root,"TestOutput");
     public static string Logs => Path.Combine(Root,"Logs");
 }
 

@@ -43,6 +43,13 @@ async Task<JobInfo> Terminal(JobManager manager,int id)
     return manager.Find(id)!.Info;
 }
 
+if (args.Contains("--pdf-printer-only"))
+{
+    await PdfPrinterTests.RunAsync(Test,root);
+    return failures==0 ? 0 : 1;
+}
+await PrinterRegressionTests.RunAsync(Test,printer);
+
 await Test("Restart aborts interrupted jobs without reprinting",async ()=>
 {
     var backend=new FakeBackend(); using var before=Manager(backend,"restart");
@@ -99,7 +106,7 @@ await Test("Backend failures become an aborted job with cleaned spool files",asy
 var settingsPath=Path.Combine(root,"http-settings.json");
 File.WriteAllText(settingsPath,JsonSerializer.Serialize(new BridgeSettings { Port=18631,OwnerSid=WindowsIdentity.GetCurrent().User!.Value,Printers=[selected] },Product.Json));
 var state=new StateStore(settingsPath);
-var monitor=new PrinterMonitor(NullLogger<PrinterMonitor>.Instance,()=>[printer]); await monitor.RefreshAsync();
+var monitor=new PrinterMonitor(NullLogger<PrinterMonitor>.Instance,new PrinterScanner(()=>[printer.Name],_=>printer)); await monitor.RefreshAsync();
 var discovery=new DiscoveryWorker(state,monitor,NullLogger<DiscoveryWorker>.Instance);
 var httpBackend=new FakeBackend(); using var httpJobs=Manager(httpBackend,"http-jobs"); await httpJobs.StartAsync(default);
 var endpoint=new IppEndpoint(state,monitor,httpJobs,discovery,new(),NullLogger<IppEndpoint>.Instance);
@@ -216,6 +223,7 @@ foreach (var apple in new[]{true,false})
         await WindowsPrintBackend.Prepare(file,apple ? "image/urf" : "image/pwg-raster",work,pages,default);
         using var image=new Bitmap(pages.Single()); Assert(image.GetPixel(0,0).R==255 && image.GetPixel(0,0).B==0); Assert(image.GetPixel(1,0).B==255);
     });
+if (args.Contains("--pdf-printer")) await PdfPrinterTests.RunAsync(Test,root);
 Console.WriteLine($"{count-failures}/{count} service tests passed; no system service, firewall changes or physical printing.");
 return failures==0 ? 0 : 1;
 

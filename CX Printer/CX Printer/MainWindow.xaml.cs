@@ -16,21 +16,37 @@ namespace CX_Printer;
 public sealed partial class MainWindow : Window
 {
     private readonly ObservableCollection<PrinterRow> _printers=[];
-    private readonly DispatcherTimer _timer=new() { Interval=TimeSpan.FromSeconds(10) };
+    private readonly DispatcherTimer _timer=new() { Interval=TimeSpan.FromSeconds(2) };
+    private readonly DispatcherTimer _operationTimer=new() { Interval=TimeSpan.FromSeconds(1) };
+    // Preview queue names only. The service is authoritative for capabilities and may
+    // see different queues; probing every driver here repeated the entire slow scan at install.
+    private readonly PrinterScanner _localPrinters=new(read:name=>
+        new(Product.PrinterId(name),name,"","",false,false,[],"","启动后台服务后读取驱动与纸张能力。"));
     private BridgeStatus? _status;
-    private bool _rendering=true,_busy,_ready,_formsInitialized;
+    private bool _rendering=true,_busy,_ready,_formsInitialized,_refreshing;
+    private long _operationStarted;
+    private string _operationMessage="";
+    private int _operationId;
     private Process? _debugProcess;
+    private TrayIcon? _trayIcon;
+    private string? _trayError;
     private static bool DebugMode=>Environment.GetEnvironmentVariable("CXPRINTER_DEBUG_SERVICE")=="1";
     public MainWindow()
     {
         InitializeComponent();
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1220,920));
-        AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory,"Assets","AppIcon.ico"));
+        var iconPath=Path.Combine(AppContext.BaseDirectory,"Assets","AppIcon.ico");
+        AppWindow.SetIcon(iconPath);
+        try { _trayIcon=new(this,iconPath,message=>Tell("系统托盘",message,InfoBarSeverity.Warning)); }
+        catch (Win32Exception ex) { _trayError=$"{ex.Message}（Windows 错误 {ex.NativeErrorCode}）"; }
+        MinimizeToTrayButton.IsEnabled=_trayIcon is not null;
         PrintersList.ItemsSource=_printers;
         _timer.Tick+=async (_,_)=> { if (!_busy) await RefreshAsync(false); };
+        _operationTimer.Tick+=(_,_)=>UpdateOperationText();
         Closed+=(_,_)=>
         {
-            _timer.Stop();
+            _timer.Stop(); _operationTimer.Stop();
+            _trayIcon?.Dispose(); _trayIcon=null;
             try { if (_debugProcess is { HasExited:false }) _debugProcess.Kill(entireProcessTree:true); }
             catch (InvalidOperationException) { }
             _debugProcess?.Dispose();
@@ -46,7 +62,9 @@ public sealed partial class MainWindow : Window
             if (DebugMode) Tell("Visual Studio 调试模式","后台仅监听本机 18631 端口，不安装系统服务。可在 VS 中附加 CxPrint.Service.exe 调试后台断点。",InfoBarSeverity.Informational);
         });
         _timer.Start();
+        if (_trayError is not null) Tell("系统托盘暂不可用",_trayError,InfoBarSeverity.Warning);
     }
+    private void MinimizeToTray_Click(object sender,RoutedEventArgs e)=>_trayIcon?.Minimize();
     private void Navigation_SelectionChanged(NavigationView sender,NavigationViewSelectionChangedEventArgs args)
     {
         if (PrintersPage is null || args.SelectedItem is not NavigationViewItem item) return;
@@ -71,6 +89,13 @@ public sealed partial class MainWindow : Window
     }
     private async Task RefreshAsync(bool refreshPrinters)
     {
+        if (_refreshing) return;
+        _refreshing=true;
+        try { await RefreshCoreAsync(refreshPrinters); }
+        finally { _refreshing=false; }
+    }
+    private async Task RefreshCoreAsync(bool refreshPrinters)
+    {
         BridgeStatus? status=null;
         string? connectionError=null;
         try
@@ -81,6 +106,17 @@ public sealed partial class MainWindow : Window
         catch (Exception ex) when (ex is TimeoutException or IOException or OperationCanceledException or UnauthorizedAccessException)
         { connectionError=ex is UnauthorizedAccessException ? "当前 Windows 账户无权管理此服务，请使用安装服务时的账户。" : null; }
         _status=status;
+        if (status is null && refreshPrinters) _ = _localPrinters.RefreshAsync();
+        var local=_localPrinters.Snapshot;
+        // The service has its own Windows account and starts with an empty snapshot.
+        // Keep the preview until it has enumerated names; never erase it mid-scan.
+        var keepPreview=status is { PrintersRefreshing:true,Printers.Count:0 };
+        var available=keepPreview ? _printers.Select(p=>p.Info).ToArray() : status?.Printers ?? local.Printers;
+        var scanning=status?.PrintersRefreshing ?? local.Refreshing;
+        PrinterScanRing.IsActive=scanning;
+        PrinterScanStatus.Text=status?.PrinterScanStatus ?? (status is null ? local.Message : null) ?? "";
+        PrinterScanPanel.Visibility=string.IsNullOrEmpty(PrinterScanStatus.Text) ? Visibility.Collapsed : Visibility.Visible;
+        _timer.Interval=TimeSpan.FromSeconds(scanning ? 1 : 10);
         _rendering=true;
         try
         {
@@ -99,9 +135,8 @@ public sealed partial class MainWindow : Window
                 $"服务端口：TCP {status.Port}    设备发现：UDP 5353\n{status.DiscoveryStatus}\n当前地址：{string.Join("，",status.Addresses)}\n\n"+
                 string.Join("\n",status.SharedPrinters.Select(p=>$"{p.Name}\nipp://{status.Addresses.FirstOrDefault(a=>!a.Contains(':')) ?? "电脑IP"}:{status.Port}/printers/{p.Id}"));
             static string PrinterFingerprint(PrinterInfo p)=>p.Id+":"+p.Summary+":"+p.DefaultMedia+":"+string.Join(',',p.Media.Select(m=>$"{m.Key}/{m.Width}/{m.Height}"));
-            if (refreshPrinters || status is not null && !_printers.Select(p=>PrinterFingerprint(p.Info)).SequenceEqual(status.Printers.Select(PrinterFingerprint)))
+            if (refreshPrinters || !_printers.Select(p=>PrinterFingerprint(p.Info)).SequenceEqual(available.Select(PrinterFingerprint)))
             {
-                var available=status?.Printers ?? await Task.Run(PrinterCatalog.Enumerate);
                 var saved=_printers.ToDictionary(p=>p.Id);
                 var selected=(PrintersList.SelectedItem as PrinterRow)?.Id;
                 _printers.Clear();
@@ -109,13 +144,15 @@ public sealed partial class MainWindow : Window
                 {
                     var shared=status?.SharedPrinters.FirstOrDefault(p=>p.Id==printer.Id);
                     var old=saved.GetValueOrDefault(printer.Id);
-                    _printers.Add(new(printer,old?.Shared ?? shared is not null,old?.DefaultMedia ?? shared?.DefaultMedia ?? printer.DefaultMedia));
+                    var defaultMedia=old?.Usable==true ? old.DefaultMedia : shared?.DefaultMedia ?? printer.DefaultMedia;
+                    if (printer.Usable && !printer.Media.Any(m=>m.Key==defaultMedia)) defaultMedia=printer.DefaultMedia;
+                    _printers.Add(new(printer,old?.Usable==true ? old.Shared : shared is not null,defaultMedia));
                 }
                 PrintersList.SelectedItem=_printers.FirstOrDefault(p=>p.Id==selected) ?? _printers.FirstOrDefault();
                 ShowPaper();
             }
-            PrinterCount.Text=status?.Error ?? $"{_printers.Count} 台打印机";
-            NoPrinters.Text=status?.Error ?? "没有检测到打印机。请先在 Windows 设置中安装驱动，并确认 Print Spooler 正在运行。";
+            PrinterCount.Text=$"{_printers.Count} 台打印机";
+            NoPrinters.Text=status?.Error ?? (status is null ? local.Error : null) ?? (scanning ? "正在读取 Windows 打印机列表，请稍候…" : "没有检测到打印机。请先在 Windows 设置中安装驱动，并确认 Print Spooler 正在运行。");
             NoPrinters.Visibility=_printers.Count==0 ? Visibility.Visible : Visibility.Collapsed;
             if (!_formsInitialized && status is not null)
             {
@@ -154,13 +191,23 @@ public sealed partial class MainWindow : Window
         if (UsernameBox is null || PasswordBox is null || ConfirmPasswordBox is null) return;
         UsernameBox.IsEnabled=PasswordBox.IsEnabled=ConfirmPasswordBox.IsEnabled=AuthToggle.IsOn;
     }
-    private async void Refresh_Click(object sender,RoutedEventArgs e)=>await Run(async ()=>await RefreshAsync(true));
+    private async void Refresh_Click(object sender,RoutedEventArgs e)=>await Run(async ()=>
+    {
+        SetOperation("正在刷新打印机列表…");
+        if (_status is not null)
+        {
+            var reply=await ControlClient.SendAsync(new("rescan"));
+            if (!reply.Success) throw new InvalidOperationException(reply.Error);
+        }
+        await RefreshAsync(true);
+    });
     private async void Service_Click(object sender,RoutedEventArgs e)=>await Run(async ()=>
     {
         if (_status is not null) { await Diagnose(); return; }
         if (DebugMode) await StartDebugService(); else await Admin(Installed() ? "--start" : "--install");
         await RefreshAsync(true);
-        Tell("服务已就绪", "勾选要共享的打印机，然后保存共享设置。",InfoBarSeverity.Success);
+        if (_status is null) throw new InvalidOperationException("后台服务已启动，但管理连接尚未就绪，请稍后刷新或查看连接诊断。");
+        Tell("服务已就绪", _status.PrintersRefreshing ? "后台正在逐台读取驱动与纸张；列表会自动更新，读取完成的打印机可以先保存共享。" : "勾选要共享的打印机，然后保存共享设置。",InfoBarSeverity.Success);
     });
     private async Task EnsureRunning()
     {
@@ -209,7 +256,7 @@ public sealed partial class MainWindow : Window
         });
     }
     private async void Repair_Click(object sender,RoutedEventArgs e)=>await Run(async ()=>
-    { await Admin("--repair"); await RefreshAsync(true); Tell("修复已完成","已检查服务恢复策略，并重建专用/域网络的局域网防火墙规则。",InfoBarSeverity.Success); });
+    { await Admin("--install"); await RefreshAsync(true); Tell("修复已完成","已更新后台组件、检查服务恢复策略，并重建专用/域网络的局域网防火墙规则。打印机列表会在后台自动更新。",InfoBarSeverity.Success); });
     private async void Stop_Click(object sender,RoutedEventArgs e)=>await Run(async ()=>
     { await Admin("--stop"); await RefreshAsync(false); Tell("服务已停止","需要打印时可重新启动。",InfoBarSeverity.Informational); });
     private async void Diagnose_Click(object sender,RoutedEventArgs e)=>await Run(Diagnose);
@@ -264,23 +311,71 @@ public sealed partial class MainWindow : Window
         if (DebugMode) throw new InvalidOperationException("当前为本机调试模式。要管理系统服务，请切换到“CX Printer · 已安装的服务”启动配置。");
         var bundled=Path.Combine(AppContext.BaseDirectory,"Bridge","CxPrint.Service.exe");
         var installed=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),"CX Printer","Bridge","CxPrint.Service.exe");
-        var exe=command=="--install" && File.Exists(bundled) ? bundled : File.Exists(installed) ? installed : bundled;
+        var exe=File.Exists(bundled) ? bundled : installed;
         if (!File.Exists(exe)) throw new FileNotFoundException("缺少后台服务组件。请运行 scripts/build.ps1，并从 artifacts 中启动完整版本。",exe);
-        var info=new ProcessStartInfo(exe) { UseShellExecute=true,Verb="runas",WorkingDirectory=Path.GetDirectoryName(exe)! };
+        using var progress=new SetupProgressListener();
+        using var progressCancellation=new CancellationTokenSource();
+        var operation=_operationId;
+        var listening=progress.ListenAsync(new Progress<SetupProgress>(value=>
+        {
+            if (_busy && operation==_operationId && !progressCancellation.IsCancellationRequested)
+                SetOperation(value.Message,value.Failed ? null : Math.Clamp(value.Percent,0,100));
+        }),progressCancellation.Token);
+        var info=new ProcessStartInfo(exe) { UseShellExecute=true,Verb="runas",WindowStyle=ProcessWindowStyle.Hidden,CreateNoWindow=true,WorkingDirectory=Path.GetDirectoryName(exe)! };
         info.ArgumentList.Add(command);
         if (command=="--install") { info.ArgumentList.Add("--owner"); info.ArgumentList.Add(WindowsIdentity.GetCurrent().User!.Value); }
-        using var process=Process.Start(info) ?? throw new InvalidOperationException("无法启动服务管理程序。");
-        await process.WaitForExitAsync();
-        if (process.ExitCode!=0) throw new InvalidOperationException($"服务操作失败（退出码 {process.ExitCode}）。详细记录位于 %ProgramData%\\CX Printer\\Logs\\setup.log。");
-        if (command is "--install" or "--start" or "--repair") await Task.Delay(1500);
+        info.ArgumentList.Add("--progress-pipe"); info.ArgumentList.Add(progress.Name);
+        try
+        {
+            SetOperation("正在请求管理员权限，请在 Windows 权限提示中确认…");
+            using var process=await Task.Run(()=>Process.Start(info)) ?? throw new InvalidOperationException("无法启动服务管理程序。");
+            await process.WaitForExitAsync();
+            await Task.WhenAny(listening,Task.Delay(500));
+            if (process.ExitCode!=0) throw new InvalidOperationException(progress.Latest is { Failed:true } failure
+                ? failure.Message : $"服务操作失败（退出码 {process.ExitCode}）。详细记录位于 %ProgramData%\\CX Printer\\Logs\\setup.log。");
+        }
+        finally { progressCancellation.Cancel(); await listening; }
+        if (command is "--install" or "--start" or "--repair")
+        {
+            SetOperation("服务已启动，正在连接管理通道…");
+            using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            try
+            {
+                while (true)
+                {
+                    try { var reply=await ControlClient.SendAsync(new("status"),deadline.Token); if (reply.Success) { _status=reply.Status; break; } }
+                    catch (Exception ex) when (ex is IOException or TimeoutException or OperationCanceledException) { }
+                    await Task.Delay(250,deadline.Token);
+                }
+            }
+            catch (OperationCanceledException) { throw new TimeoutException("服务已启动，但连接管理通道超时。请稍后刷新，或查看 %ProgramData%\\CX Printer\\Logs 中的服务日志。"); }
+        }
+    }
+    private void SetOperation(string message,int? percent=null)
+    {
+        _operationMessage=message;
+        OperationProgress.IsIndeterminate=percent is null;
+        if (percent is not null) OperationProgress.Value=percent.Value;
+        UpdateOperationText();
+    }
+    private void UpdateOperationText()
+    {
+        var elapsed=Stopwatch.GetElapsedTime(_operationStarted);
+        OperationStatus.Text=$"{_operationMessage}  已用 {(int)elapsed.TotalMinutes:00}:{elapsed.Seconds:00}";
     }
     private async Task Run(Func<Task> action)
     {
-        if (_busy) return; _busy=true; BusyRing.IsActive=true; ServiceButton.IsEnabled=false;
+        if (_busy) return; _busy=true; _operationId++; _operationStarted=Stopwatch.GetTimestamp();
+        BusyRing.IsActive=true; ServiceButton.IsEnabled=RefreshButton.IsEnabled=false;
+        OperationPanel.Visibility=Visibility.Visible; SetOperation("正在检查打印服务…"); _operationTimer.Start();
         try { await action(); }
         catch (Win32Exception ex) when (ex.NativeErrorCode==1223) { Tell("操作已取消","未完成服务配置。",InfoBarSeverity.Informational); await RefreshAsync(false); }
         catch (Exception ex) { Tell("操作未完成",ex.Message,InfoBarSeverity.Error); try { await RefreshAsync(_printers.Count==0); } catch { } }
-        finally { _busy=false; BusyRing.IsActive=false; ServiceButton.IsEnabled=true; }
+        finally
+        {
+            _busy=false; BusyRing.IsActive=false; ServiceButton.IsEnabled=RefreshButton.IsEnabled=true;
+            _operationTimer.Stop(); OperationPanel.Visibility=Visibility.Collapsed;
+        }
     }
     private void Tell(string title,string message,InfoBarSeverity severity)
     { Notice.Title=title; Notice.Message=message; Notice.Severity=severity; Notice.IsOpen=true; }

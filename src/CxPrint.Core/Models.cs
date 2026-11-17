@@ -47,7 +47,9 @@ public sealed record PrinterInfo(string Id, string Name, string Driver, string P
     IReadOnlyList<MediaSize> Media, string DefaultMedia, string? Error = null)
 {
     public bool Usable => Error is null && Media.Count > 0;
-    public string Summary => Error ?? $"{Media.Count} 种纸张 · {(Color ? "彩色" : "黑白")} · {(Duplex ? "双面" : "单面")}";
+    public bool IsPdfTest => IsMicrosoftPdfDriver(Driver);
+    public static bool IsMicrosoftPdfDriver(string driver)=>driver.Equals("Microsoft Print To PDF",StringComparison.OrdinalIgnoreCase);
+    public string Summary => Error ?? $"{(IsPdfTest ? "PDF 测试 · " : "")}{Media.Count} 种纸张 · {(Color ? "彩色" : "黑白")} · {(Duplex ? "双面" : "单面")}{(IsPdfTest ? " · 自动保存文件" : "")}";
 }
 
 public sealed record SharedPrinter(string Id, string Name, string? DefaultMedia = null);
@@ -81,5 +83,7 @@ public sealed record JobInfo(int Id, string PrinterId, string Name, string User,
     DateTimeOffset Created, int Pages = 0);
 public sealed record BridgeStatus(bool Running, bool Enabled, int Port, bool AutoStart, bool AuthenticationEnabled,
     string Username, bool HasPassword, IReadOnlyList<PrinterInfo> Printers, IReadOnlyList<SharedPrinter> SharedPrinters,
-    IReadOnlyList<JobInfo> Jobs, IReadOnlyList<string> Addresses, string DiscoveryStatus, string? Error = null);
+    IReadOnlyList<JobInfo> Jobs, IReadOnlyList<string> Addresses, string DiscoveryStatus, string? Error = null,
+    bool PrintersRefreshing = false, string? PrinterScanStatus = null);
 public sealed record ControlReply(bool Success, string? Error = null, BridgeStatus? Status = null);
+public sealed record SetupProgress(int Percent,string Message,bool Failed = false);
