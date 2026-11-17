@@ -7,5 +7,6 @@
 - 修复前完整后台套件：27/28；唯一失败是上述根因回归，日志 `artifacts/srv-uri-before-fix.log`。
 - 修复后完整后台套件：29/29，退出码 0；日志 `artifacts/srv-uri-after-fix.log`。
 - 完整发布构建成功；核心协议套件 17/17、后台套件 29/29 通过。
+- 后台版本标识绑定最终发布源码提交 `dc2539989fe3450dc00c8eb75c0a29cf0f6b1467`，版本读取及构建拒绝不匹配版本的检查已验证。
 - 签名 MSIX `CX-Printer_1.0.0.6_x64.msix` 已在 Windows 10 build 17763 全新版本身份安装、激活、显示主窗口并正常退出；Authenticode `Valid`，发布者 `CN=MasterTea`。MSIX 1,668 个载荷文件的 8,642 个 block 哈希全通过。
 - 尚未在用户实际 Mac 和物理打印机进行修复后联测。包内没有签名私钥。
