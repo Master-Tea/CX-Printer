@@ -32,8 +32,7 @@
             </Style>
         </Grid.Resources>
         <NavigationView x:Name="Navigation" PaneDisplayMode="Left" IsBackButtonVisible="Collapsed"
-                        IsSettingsVisible="False" OpenPaneLength="224" SelectionChanged="Navigation_SelectionChanged"
-                        PaneOpened="Navigation_PaneChanged" PaneClosed="Navigation_PaneChanged" PaneClosing="Navigation_PaneClosing">
+                        IsSettingsVisible="False" OpenPaneLength="224" SelectionChanged="Navigation_SelectionChanged">
             <NavigationView.PaneHeader>
                 <StackPanel Margin="16,24,16,28" Spacing="8">
                     <Image Source="Assets/AppIcon.png" Width="56" Height="56" HorizontalAlignment="Left" AutomationProperties.Name="CX Printer 图标" />

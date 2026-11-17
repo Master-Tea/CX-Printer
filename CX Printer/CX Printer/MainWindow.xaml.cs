@@ -34,6 +34,8 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        Navigation.RegisterPropertyChangedCallback(NavigationView.IsPaneOpenProperty,(_,_)=>
+            RailStatusPanel.Visibility=Navigation.IsPaneOpen ? Visibility.Visible : Visibility.Collapsed);
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1220,920));
         var iconPath=Path.Combine(AppContext.BaseDirectory,"Assets","AppIcon.ico");
         AppWindow.SetIcon(iconPath);
@@ -66,14 +68,6 @@ public sealed partial class MainWindow : Window
         if (_trayError is not null) Tell("系统托盘暂不可用",_trayError,InfoBarSeverity.Warning);
     }
     private void MinimizeToTray_Click(object sender,RoutedEventArgs e)=>_trayIcon?.Minimize();
-    private void Navigation_PaneChanged(NavigationView sender,object args)
-    {
-        if (RailStatusPanel is not null) RailStatusPanel.Visibility=sender.IsPaneOpen ? Visibility.Visible : Visibility.Collapsed;
-    }
-    private void Navigation_PaneClosing(NavigationView sender,NavigationViewPaneClosingEventArgs args)
-    {
-        if (RailStatusPanel is not null) RailStatusPanel.Visibility=Visibility.Collapsed;
-    }
     private void Navigation_SelectionChanged(NavigationView sender,NavigationViewSelectionChangedEventArgs args)
     {
         if (PrintersPage is null || args.SelectedItem is not NavigationViewItem item) return;
