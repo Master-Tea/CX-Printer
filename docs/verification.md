@@ -34,6 +34,14 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1
 
 当前沙箱限制命名管道和部分桌面操作。UI 与后台完整连接检查已在获准的正常桌面环境运行。VS 完整 MSBuild 在本机加载 Windows SDK 的 `WinRT.SourceGenerator` 时会产生 CS8034 警告；没有关闭警告或从项目删除分析器。实际 UI 启动、x:Bind 以及文件流渲染已通过运行检查，`dotnet` 编译后台测试时不出现此警告。这是尚需在目标开发机工具链中复核的环境差异。
 
+## 1.0.0.5 / DNS-SD 广播回归与后台更新说明
+
+2026-11-17：除 UTF-8 TXT 支持外，将固定发现说明中的 Unicode 中点改为 ASCII 连字符；纯英文打印机与主机名不再产生非 ASCII TXT 字节，本地化值仍用 UTF-8。补充完整 DNS-SD 公告、PTR/SRV/TXT 查询、线上报文及撤销回归。旧 ASCII 错误复现、UTF-8 TXT 编解码和纯英文完整公告/浏览/撤销三项测试通过。其余后台集成测试在作业目录和设置文件写入时被当前沙箱拒绝访问，因此不报告整个服务套件通过；本次发布构建使用 `-SkipTests`，独立 UI/服务构建成功。
+
+1.0.0.5 签名包 Authenticode 状态为 Valid，发布者 CN=MasterTea；包校验覆盖 1,666 个文件、8,640 个数据块和 51 个透明图标，当前发布 DLL 与包内文件一致，未包含调试数据或签名私钥。最低支持系统 Windows 10 1809 上升级安装成功，开始菜单激活显示主窗口并正常退出；托盘六项集成检查全部通过。报告见 `artifacts/MSIX/verification-1.0.0.5.json`、`activation-1.0.0.5.json` 和 `tray-verification-1.0.0.5.json`。
+
+已确认管理端更新不会自动替换独立安装的 Windows 服务。安装 1.0.0.5 后，需在“启动与连接”执行“修复服务与防火墙”，确认状态变为“已广播 … 台打印机”。此操作保留共享和认证设置。当前开发机未安装 CxPrintBridge，无法从本机检查目标电脑正在运行的后台二进制版本；未连接实体 Mac 或打印机。
+
 ## 1.0.0.4 / 扫描、安装进度、Mac 发现、PDF 测试、透明图标与托盘
 
 2026-11-17：根据目标电脑反馈修复首次扫描等待两分钟、服务安装后列表清空并再次等待、安装时出现黑色控制台且无进度，以及广播错误 `Only ASCII characters are allowed`。

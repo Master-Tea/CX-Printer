@@ -80,7 +80,7 @@ internal static class PrinterRegressionTests
                 var bytes=packet.ToByteArray();
                 var decoded=new Message(); decoded.Read(bytes);
                 Assert(decoded.Answers.OfType<TXTRecord>().Single().Strings.SequenceEqual(txt.Strings),"UTF-8 TXT did not survive a real DNS wire roundtrip.");
-                Assert(txt.Strings.Contains("note=CX Printer · 办公室电脑😀"),"The Unicode discovery note was corrupted.");
+                Assert(txt.Strings.Contains("note=CX Printer - 办公室电脑😀"),"The Unicode discovery note was corrupted.");
                 // Catalog insertion and a real service lookup must work too, without opening a network socket.
                 using var mdns=new MulticastService(); using var discovery=new ServiceDiscovery(mdns);
                 discovery.Advertise(profile);
@@ -89,6 +89,30 @@ internal static class PrinterRegressionTests
                 Assert(answer.Answers.OfType<TXTRecord>().Any(),"A printer TXT query returned no answer.");
                 _=answer.ToByteArray();
             }
+        });
+        await test("English printer and host announce, browse, resolve and withdraw through the production library",async ()=>
+        {
+            var name="HP Laser NS MFP 1005";
+            var printer=fixture with { Name=name,Id=Product.PrinterId(name),Driver="HP Laser NS MFP 1005" };
+            var profile=PrinterAdvertisement.Create(printer,new BridgeSettings(),[IPAddress.Parse("192.0.2.10")],"FILESERVER");
+            var txt=profile.Resources.OfType<TXTRecord>().Single();
+            Assert(txt.Strings.All(s=>s.All(character=>character<=0x7f)),"English printer discovery TXT contains non-ASCII characters.");
+            Assert(txt.Strings.Contains("note=CX Printer - FILESERVER"),"The compatibility-safe discovery note is missing.");
+            using var mdns=new MulticastService(); using var discovery=new ServiceDiscovery(mdns);
+            discovery.Advertise(profile);
+            mdns.Start(); // SendAnswer requires Start to initialize the packet-size limit.
+            discovery.Announce(profile); // Includes Truncate/Length and both real SendAnswer calls.
+            foreach (var type in new[]{DnsType.PTR,DnsType.SRV,DnsType.TXT})
+            {
+                var query=new Message();
+                query.Questions.Add(new Question { Name=type==DnsType.PTR ? profile.QualifiedServiceName : profile.FullyQualifiedName,Type=type });
+                var answer=await discovery.NameServer.ResolveAsync(query);
+                Assert(answer.Answers.Any(r=>r.Type==type),$"The {type} query was not answered.");
+                var decoded=new Message(); decoded.Read(answer.ToByteArray());
+                Assert(decoded.Answers.Any(r=>r.Type==type),$"The {type} response was lost on the wire.");
+                mdns.SendAnswer(answer);
+            }
+            discovery.Unadvertise(profile);
         });
         await test("PDF test detection uses the driver and output names are unique and bounded",()=>
         {

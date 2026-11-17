@@ -24,7 +24,7 @@ internal static class PrinterAdvertisement
         profile.AddProperty("rp","printers/"+printer.Id);
         profile.AddProperty("ty",TrimUtf8(printer.Driver,252));
         profile.AddProperty("product","("+TrimUtf8(printer.Driver,245)+")");
-        profile.AddProperty("note",TrimUtf8("CX Printer · "+machineName,250));
+        profile.AddProperty("note",TrimUtf8("CX Printer - "+machineName,250));
         profile.AddProperty("pdl",string.Join(',',PrinterAttributes.Formats.Where(f=>f!="application/octet-stream")));
         profile.AddProperty("URF",printer.Color ? "W8,SRGB24,RS300,CP1" : "W8,RS300,CP1");
         profile.AddProperty("Color",printer.Color ? "T" : "F");

@@ -20,7 +20,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using static CxPrint.Core.IppCodec;
 
-var root=Path.GetFullPath(Path.Combine("artifacts","test-data",Guid.NewGuid().ToString("N")));
+var configuredRoot=Environment.GetEnvironmentVariable("CX_TEST_ROOT");
+var root=configuredRoot is null ? Path.GetFullPath(Path.Combine("artifacts","test-data",Guid.NewGuid().ToString("N"))) : Path.GetFullPath(configuredRoot);
 Directory.CreateDirectory(root);
 var paper=new MediaSize("iso_a4_210x297mm","A4",21000,29700,9);
 var a3=new MediaSize("iso_a3_297x420mm","A3",29700,42000,8);
