@@ -12,24 +12,46 @@ public sealed class IppEndpoint(StateStore state,PrinterMonitor printers,JobMana
     private readonly SemaphoreSlim _requests=new(16,16);
     private readonly ConcurrentDictionary<string,(int Count,DateTimeOffset Until)> _failures=new();
     private readonly DateTimeOffset _started=DateTimeOffset.UtcNow;
+    private readonly ConcurrentQueue<string> _recentRequests=new();
+    public IReadOnlyList<string> RecentRequests=>_recentRequests.ToArray();
+    private sealed class RequestTrace
+    {
+        public IppMessage? Request;
+        public IppMessage? Response;
+        public bool Failed;
+    }
     public async Task HandleAsync(HttpContext context)
     {
         if (!await _requests.WaitAsync(0,context.RequestAborted)) { context.Response.StatusCode=503; context.Response.Headers.RetryAfter="5"; return; }
-        try { await Process(context); }
-        finally { _requests.Release(); }
+        var trace=new RequestTrace();
+        try { await Process(context,trace); }
+        catch { trace.Failed=true; throw; }
+        finally
+        {
+            _requests.Release();
+            var operation=trace.Request is {} request ? $"0x{request.Code:x4} id={request.RequestId}" : "unparsed";
+            var result=trace.Response is {} response ? $"0x{response.Code:x4}" : "none";
+            var detail=(trace.Response?.Text("status-message") ?? "").Replace('\r',' ').Replace('\n',' ');
+            if (detail.Length>200) detail=detail[..200];
+            var entry=$"{DateTimeOffset.Now:O} {context.Connection.RemoteIpAddress} op={operation} HTTP={(trace.Failed ? "exception" : context.Response.StatusCode.ToString())} IPP={result} {detail}".TrimEnd();
+            _recentRequests.Enqueue(entry);
+            while (_recentRequests.Count>32) _recentRequests.TryDequeue(out _);
+            logger.LogInformation("IPP {RequestResult}",entry);
+        }
     }
-    private async Task Process(HttpContext context)
+    private async Task Process(HttpContext context,RequestTrace trace)
     {
         if (!string.Equals(context.Request.ContentType?.Split(';',2)[0].Trim(),"application/ipp",StringComparison.OrdinalIgnoreCase))
         { context.Response.StatusCode=415; return; }
         using var timeout=CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted); timeout.CancelAfter(TimeSpan.FromMinutes(5));
         IppMessage request;
-        try { request=await IppCodec.ReadAsync(context.Request.Body,timeout.Token); }
+        try { trace.Request=request=await IppCodec.ReadAsync(context.Request.Body,timeout.Token); }
         catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException or OverflowException)
         { context.Response.StatusCode=400; return; }
         IppMessage Error(ushort status,string message)=>Response(request,status,message:message);
         async Task Send(IppMessage response)
         {
+            trace.Response=response;
             var bytes=Write(response); context.Response.ContentType="application/ipp"; context.Response.ContentLength=bytes.Length;
             await context.Response.Body.WriteAsync(bytes,timeout.Token);
         }

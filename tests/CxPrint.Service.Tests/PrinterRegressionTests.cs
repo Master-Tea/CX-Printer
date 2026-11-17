@@ -114,6 +114,35 @@ internal static class PrinterRegressionTests
             }
             discovery.Unadvertise(profile);
         });
+        await test("DNS-SD targets use URI-safe hostnames with matching IPv4 and scoped IPv6 records",async ()=>
+        {
+            var addresses=new[]{IPAddress.Parse("192.168.0.31"),IPAddress.Parse("2001:db8::31"),IPAddress.Parse("fe80::22ea:4e76:403:63c3%12")};
+            // Follow production order: construct discovery before the printer profiles.
+            using var mdns=new MulticastService(); using var discovery=new ServiceDiscovery(mdns);
+            foreach (var name in new[]{"HP Laser NS MFP 1005","办公室 打印机😀","Printer_with_underscores"})
+            {
+                var printer=fixture with { Name=name,Id=Product.PrinterId(name),Driver="HP Laser NS MFP 1005 PCLm-S" };
+                var profile=PrinterAdvertisement.Create(printer,new BridgeSettings(),addresses,"MASTER-TEA-FILE");
+                discovery.Advertise(profile);
+                var query=new Message(); query.Questions.Add(new Question { Name=profile.FullyQualifiedName,Type=DnsType.SRV });
+                var answer=await discovery.NameServer.ResolveAsync(query);
+                var decoded=new Message(); decoded.Read(answer.ToByteArray());
+                var srv=decoded.Answers.OfType<SRVRecord>().Single();
+                var host=string.Join('.',srv.Target.Labels);
+                Assert(Uri.TryCreate($"ipp://{host}:{srv.Port}/printers/{printer.Id}",UriKind.Absolute,out _),"The advertised SRV target cannot be used in an IPP URI.");
+                Assert(srv.Target.Labels.All(label=>label.Length is >0 and <=63 && label.All(c=>char.IsAsciiLetterOrDigit(c) || c=='-') && char.IsAsciiLetterOrDigit(label[0]) && char.IsAsciiLetterOrDigit(label[^1])),"The SRV target is not a DNS hostname.");
+                Assert(srv.Target==profile.HostName && srv.Target==$"cx-{Product.PrinterId("MASTER-TEA-FILE")}.local","The target is not a stable host identity.");
+                var resolved=decoded.Answers.Concat(decoded.AdditionalRecords).OfType<AddressRecord>().ToArray();
+                Assert(resolved.Length==addresses.Length && resolved.All(a=>a.Name==srv.Target),"SRV resolution did not include all matching addresses.");
+                Assert(resolved.Select(a=>Convert.ToHexString(a.Address.GetAddressBytes())).ToHashSet().SetEquals(addresses.Select(a=>Convert.ToHexString(a.GetAddressBytes()))),"Address bytes changed during DNS resolution.");
+                foreach (var type in new[]{DnsType.A,DnsType.AAAA})
+                {
+                    var addressQuery=new Message(); addressQuery.Questions.Add(new Question { Name=srv.Target,Type=type });
+                    var addressAnswer=await discovery.NameServer.ResolveAsync(addressQuery);
+                    Assert(addressAnswer.Answers.Any(a=>a.Type==type && a.Name==srv.Target),$"The {type} hostname lookup has no answer.");
+                }
+            }
+        });
         await test("PDF test detection uses the driver and output names are unique and bounded",()=>
         {
             var pdf=fixture with { Name="Renamed test printer",Driver="Microsoft Print To PDF",Port="PORTPROMPT:" };

@@ -82,6 +82,9 @@ try {
     }
     $inventory | Sort-Object { $_.package } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $out 'dependencies.json') -Encoding UTF8
     Write-Output "Published application: $out"
+    $publishedVersion=(Get-Item -LiteralPath (Join-Path $out 'Bridge\CxPrint.Service.dll')).VersionInfo.ProductVersion
+    if (!$publishedVersion.StartsWith('1.0.0.6',[StringComparison]::Ordinal)) { throw "Unexpected backend version: $publishedVersion" }
+    Write-Output "Backend version: $publishedVersion"
     Write-Output "Start: $(Join-Path $out 'CX Printer.exe')"
 }
 finally { Pop-Location }

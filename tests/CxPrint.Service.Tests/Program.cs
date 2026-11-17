@@ -136,6 +136,23 @@ try
         Assert(reply.Ipp!.Text("media-default")==paper.Key); Assert(reply.Ipp.Find("media-col-database")!.Values.Count==2);
         Assert(reply.Ipp.Find("media-col-database")!.Values[1].Member("media-size")!.Values[0].Member("y-dimension")!.Values[0].Integer==42000);
     });
+    await Test("Get-Printer-Attributes accepts the printer URI resolved from its advertised SRV target",async ()=>
+    {
+        var profile=PrinterAdvertisement.Create(printer,state.Settings,[IPAddress.Loopback,IPAddress.IPv6Loopback],"MASTER-TEA-FILE");
+        var announcement=new Makaretu.Dns.Message { QR=true }; announcement.Answers.AddRange(profile.Resources);
+        var decoded=new Makaretu.Dns.Message(); decoded.Read(announcement.ToByteArray());
+        var target=decoded.Answers.OfType<Makaretu.Dns.SRVRecord>().Single().Target;
+        // CUPS builds the IPP URI from the DNS-SD SRV hostname and escapes its spaces.
+        var hostname=string.Join('.',target.Labels);
+        var targetUri=$"ipp://{Uri.EscapeDataString(hostname)}:{state.Settings.Port}/printers/{printer.Id}";
+        var request=Request(0x000b);
+        request=request with { Attributes=request.Attributes.Select(a=>a.Name=="printer-uri" ? Text(1,IppTag.Uri,"printer-uri",targetUri) : a).ToArray() };
+        var reply=await Send(request);
+        Assert(reply.Ipp?.Code==0,$"The advertised target {targetUri} returned IPP 0x{reply.Ipp?.Code:x4}: {reply.Ipp?.Text("status-message")}");
+        Assert(target.Labels.All(label=>label.Length is >0 and <=63 && label.All(c=>char.IsAsciiLetterOrDigit(c) || c=='-') && char.IsAsciiLetterOrDigit(label[0]) && char.IsAsciiLetterOrDigit(label[^1])),
+            "The SRV target is not a valid DNS hostname.");
+        Assert(decoded.Answers.OfType<Makaretu.Dns.AddressRecord>().All(a=>a.Name==target),"Address records do not match the SRV target.");
+    });
     await Test("Validate-Job checks options without creating or printing a job",async ()=>
     {
         var reply=await Send(Request(0x0004,Text(2,IppTag.Keyword,"media",a3.Key)));

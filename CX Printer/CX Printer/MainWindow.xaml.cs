@@ -132,7 +132,7 @@ public sealed partial class MainWindow : Window
             JobsList.ItemsSource=status?.Jobs.Select(j=>new JobRow(j.Name,j.Message,j.Created.ToLocalTime().ToString("g"))).ToList() ?? [];
             NoJobs.Visibility=status?.Jobs.Count>0 ? Visibility.Collapsed : Visibility.Visible;
             NetworkDetails.Text=status is null ? connectionError ?? "打印服务未运行。请先安装或启动服务。" :
-                $"服务端口：TCP {status.Port}    设备发现：UDP 5353\n{status.DiscoveryStatus}\n当前地址：{string.Join("，",status.Addresses)}\n\n"+
+                $"后台版本：{status.Diagnostics?.ServiceVersion.Split('+')[0] ?? "未提供（旧版后台）"}\n服务端口：TCP {status.Port}    设备发现：UDP 5353\n{status.DiscoveryStatus}\n当前地址：{string.Join("，",status.Addresses)}\n\n"+
                 string.Join("\n",status.SharedPrinters.Select(p=>$"{p.Name}\nipp://{status.Addresses.FirstOrDefault(a=>!a.Contains(':')) ?? "电脑IP"}:{status.Port}/printers/{p.Id}"));
             static string PrinterFingerprint(PrinterInfo p)=>p.Id+":"+p.Summary+":"+p.DefaultMedia+":"+string.Join(',',p.Media.Select(m=>$"{m.Key}/{m.Width}/{m.Height}"));
             if (refreshPrinters || !_printers.Select(p=>PrinterFingerprint(p.Info)).SequenceEqual(available.Select(PrinterFingerprint)))
@@ -269,13 +269,18 @@ public sealed partial class MainWindow : Window
         await RefreshAsync(true);
         Tell("本机服务可连接","已验证本机 TCP 端口，并请求重新扫描打印机和广播。手机与 Mac 的网络可达性仍需在对应设备上确认。",InfoBarSeverity.Success);
     }
-    private void CopyDiagnostics_Click(object sender,RoutedEventArgs e)
+    private async void CopyDiagnostics_Click(object sender,RoutedEventArgs e)=>await Run(async ()=>
     {
-        var text=$"CX Printer\n{RailStatus.Text}\n{NetworkDetails.Text}\n认证：{(_status?.AuthenticationEnabled==true ? "已启用" : "未启用")}\n自启：{AutoStartToggle.IsOn}\n\n"+
+        await RefreshAsync(false);
+        var version=System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(typeof(MainWindow).Assembly)?.InformationalVersion ?? "unknown";
+        var diagnostics=_status?.Diagnostics;
+        var runtime=diagnostics is null ? "后台尚未提供版本与请求诊断。" :
+            $"后台版本：{diagnostics.ServiceVersion}\n后台 DLL SHA-256：{diagnostics.ServiceSha256}\n最近 IPP 请求：\n{string.Join("\n",diagnostics.RecentIppRequests)}\n最近发现异常：{diagnostics.DiscoveryError ?? "无"}";
+        var text=$"CX Printer {version}\n{RailStatus.Text}\n{NetworkDetails.Text}\n认证：{(_status?.AuthenticationEnabled==true ? "已启用" : "未启用")}\n自启：{AutoStartToggle.IsOn}\n{runtime}\n\n"+
             string.Join("\n",_printers.Select(p=>$"{p.Name}: {p.Summary}\n"+string.Join("; ",p.Info.Media.Select(m=>$"{m.Key}={m.Width}x{m.Height}"))));
         var package=new DataPackage(); package.SetText(text); Clipboard.SetContent(package);
-        Tell("已复制诊断信息","包含服务、网络和纸张信息，不包含密码或凭据摘要。",InfoBarSeverity.Success);
-    }
+        Tell("已复制诊断信息","包含后台版本、IPP 请求结果、网络和纸张信息，不包含密码或凭据摘要。",InfoBarSeverity.Success);
+    });
     private async void Remove_Click(object sender,RoutedEventArgs e)
     {
         var dialog=new ContentDialog { XamlRoot=Root.XamlRoot,Title="卸载打印服务？",Content="这会停止共享，移除 CX Printer 服务和它的防火墙规则。设置和诊断记录将保留。",PrimaryButtonText="卸载服务",CloseButtonText="取消",DefaultButton=ContentDialogButton.Close };

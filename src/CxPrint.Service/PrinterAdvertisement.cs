@@ -15,6 +15,13 @@ internal static class PrinterAdvertisement
         var machine=Product.PrinterId(machineName)[..6];
         var name=$"{clean} CX-{machine}-{printer.Id[..6]}";
         var profile=new ServiceProfile(name,"_ipp._tcp",(ushort)settings.Port,addresses);
+        // DNS-SD instance labels allow spaces and UTF-8, but clients use the SRV
+        // target as a URI hostname. ServiceProfile defaults that target to the
+        // display name, which produces invalid IPP URIs for ordinary queue names.
+        var host=new DomainName($"cx-{Product.PrinterId(machineName)}.local");
+        profile.HostName=host;
+        foreach (var srv in profile.Resources.OfType<SRVRecord>()) srv.Target=host;
+        foreach (var address in profile.Resources.OfType<AddressRecord>()) address.Name=host;
         // The library's TXT writer only accepts ASCII. DNS-SD TXT values are UTF-8
         // octet strings; even our own middle dot in "CX Printer · ..." broke it.
         var old=profile.Resources.OfType<TXTRecord>().Single();

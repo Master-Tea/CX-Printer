@@ -37,7 +37,9 @@ public sealed class DiscoveryWorker(StateStore state,PrinterMonitor printers,ILo
     private readonly List<ServiceProfile> _profiles=[];
     private int _dirty=1;
     private string _status="等待网络";
+    private string? _lastError;
     public string Status => Volatile.Read(ref _status);
+    public string? LastError => Volatile.Read(ref _lastError);
     public int ConfigChangeTime { get; private set; } = 1;
     public static IReadOnlyList<IPAddress> Addresses() => NetworkInterface.GetAllNetworkInterfaces()
         .Where(n=>n.OperationalStatus==OperationalStatus.Up && n.SupportsMulticast &&
@@ -80,6 +82,7 @@ public sealed class DiscoveryWorker(StateStore state,PrinterMonitor printers,ILo
                             {
                                 var profile=PrinterAdvertisement.Create(printer,settings,addresses);
                                 _discovery.Advertise(profile); _profiles.Add(profile);
+                                logger.LogInformation("DNS-SD {Instance} -> {Host}:{Port}/printers/{PrinterId}",profile.FullyQualifiedName,profile.HostName,settings.Port,printer.Id);
                             }
                             _mdns.Start(); _status=$"已广播 {available.Length} 台打印机 · IPv4 / IPv6";
                         }
@@ -93,6 +96,7 @@ public sealed class DiscoveryWorker(StateStore state,PrinterMonitor printers,ILo
                 }
                 catch (Exception ex)
                 {
+                    Volatile.Write(ref _lastError,ex.ToString());
                     _status="设备发现暂时失败，5 秒后重试："+ex.Message;
                     logger.LogWarning(ex,"DNS-SD 广播失败。"); Close(); fingerprint=""; refreshAt=DateTimeOffset.MinValue;
                 }

@@ -8,7 +8,7 @@ using Microsoft.Win32;
 namespace CxPrint.Service;
 
 public sealed class ControlWorker(StateStore state,PrinterMonitor printers,JobManager jobs,DiscoveryWorker discovery,
-    ILogger<ControlWorker> logger) : ServiceWorker
+    IppEndpoint endpoint,ILogger<ControlWorker> logger) : ServiceWorker
 {
     protected override async Task RunAsync(CancellationToken stoppingToken)
     {
@@ -88,6 +88,6 @@ public sealed class ControlWorker(StateStore state,PrinterMonitor printers,JobMa
         return new(true,settings.Enabled,settings.Port,(int?)key?.GetValue("Start")==2,
             settings.Authentication.Enabled,settings.Authentication.Username,settings.Authentication.ProtectedHa1 is not null,
             scan.Printers,settings.Printers,jobs.Snapshot(),Paths.DebugMode ? ["127.0.0.1"] : DiscoveryWorker.Addresses().Select(a=>a.ToString()).ToArray(),discovery.Status,
-            scan.Error,scan.Refreshing,scan.Message);
+            scan.Error,scan.Refreshing,scan.Message,new(ServiceBuild.Version,ServiceBuild.Sha256,discovery.LastError,endpoint.RecentRequests));
     }
 }

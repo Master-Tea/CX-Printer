@@ -84,7 +84,7 @@ public sealed class FileLog : ILoggerProvider
                 var path=Path.Combine(Paths.Logs,DateTime.UtcNow.ToString("yyyy-MM-dd")+".log");
                 // A runaway fault cannot fill the system disk.
                 if (File.Exists(path) && new FileInfo(path).Length>10*1024*1024) return;
-                File.AppendAllText(path,$"{DateTimeOffset.Now:O} [{level}] {category}: {message} {(ex is null ? "" : ex.GetType().Name+": "+ex.Message)}{Environment.NewLine}");
+                File.AppendAllText(path,$"{DateTimeOffset.Now:O} [{level}] {category}: {message}{Environment.NewLine}{(ex is null ? "" : ex+Environment.NewLine)}");
                 foreach (var old in Directory.EnumerateFiles(Paths.Logs,"*.log").Where(p=>File.GetLastWriteTimeUtc(p)<DateTime.UtcNow.AddDays(-14))) File.Delete(old);
             }
         }

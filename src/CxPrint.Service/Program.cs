@@ -52,6 +52,7 @@ try
     builder.Services.AddHostedService<ControlWorker>();
     builder.Services.AddSingleton<IppEndpoint>();
     var app=builder.Build();
+    app.Logger.LogInformation("后台版本 {Version}；CxPrint.Service.dll SHA-256 {Sha256}",ServiceBuild.Version,ServiceBuild.Sha256);
     app.MapPost("/printers/{printerId}",(HttpContext context,IppEndpoint endpoint)=>endpoint.HandleAsync(context));
     app.MapPost("/jobs/{jobId:int}",(HttpContext context,IppEndpoint endpoint)=>endpoint.HandleAsync(context));
     app.MapGet("/",()=>Results.Text("CX Printer Bridge — IPP endpoint: /printers/{id}\n请使用本机 CX Printer 管理共享。","text/plain; charset=utf-8"));

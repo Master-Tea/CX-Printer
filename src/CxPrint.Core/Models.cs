@@ -84,6 +84,8 @@ public sealed record JobInfo(int Id, string PrinterId, string Name, string User,
 public sealed record BridgeStatus(bool Running, bool Enabled, int Port, bool AutoStart, bool AuthenticationEnabled,
     string Username, bool HasPassword, IReadOnlyList<PrinterInfo> Printers, IReadOnlyList<SharedPrinter> SharedPrinters,
     IReadOnlyList<JobInfo> Jobs, IReadOnlyList<string> Addresses, string DiscoveryStatus, string? Error = null,
-    bool PrintersRefreshing = false, string? PrinterScanStatus = null);
+    bool PrintersRefreshing = false, string? PrinterScanStatus = null, BridgeDiagnostics? Diagnostics = null);
+public sealed record BridgeDiagnostics(string ServiceVersion, string ServiceSha256, string? DiscoveryError,
+    IReadOnlyList<string> RecentIppRequests);
 public sealed record ControlReply(bool Success, string? Error = null, BridgeStatus? Status = null);
 public sealed record SetupProgress(int Percent,string Message,bool Failed = false);
