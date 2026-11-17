@@ -10,6 +10,7 @@ param(
 $ErrorActionPreference='Stop'
 $repo=Split-Path $PSScriptRoot -Parent
 $env:MSBuildEnableWorkloadResolver='false'
+$env:SourceRevisionId=(git -C $repo rev-parse HEAD).Trim()
 $rid=@{ x64='win-x64';x86='win-x86';ARM64='win-arm64' }[$Platform]
 $vswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 if (!(Test-Path -LiteralPath $vswhere)) { throw 'Install Visual Studio 2022 with Windows application development tools.' }
@@ -83,7 +84,8 @@ try {
     $inventory | Sort-Object { $_.package } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $out 'dependencies.json') -Encoding UTF8
     Write-Output "Published application: $out"
     $publishedVersion=(Get-Item -LiteralPath (Join-Path $out 'Bridge\CxPrint.Service.dll')).VersionInfo.ProductVersion
-    if (!$publishedVersion.StartsWith('1.0.0.6',[StringComparison]::Ordinal)) { throw "Unexpected backend version: $publishedVersion" }
+    $expectedVersion='1.0.0.6+'+$env:SourceRevisionId
+    if ($publishedVersion -cne $expectedVersion) { throw "Backend source/version mismatch: expected $expectedVersion, got $publishedVersion. Commit source before building release artifacts." }
     Write-Output "Backend version: $publishedVersion"
     Write-Output "Start: $(Join-Path $out 'CX Printer.exe')"
 }
