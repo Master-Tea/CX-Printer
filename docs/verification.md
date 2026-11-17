@@ -34,6 +34,16 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1
 
 当前沙箱限制命名管道和部分桌面操作。UI 与后台完整连接检查已在获准的正常桌面环境运行。VS 完整 MSBuild 在本机加载 Windows SDK 的 `WinRT.SourceGenerator` 时会产生 CS8034 警告；没有关闭警告或从项目删除分析器。实际 UI 启动、x:Bind 以及文件流渲染已通过运行检查，`dotnet` 编译后台测试时不出现此警告。这是尚需在目标开发机工具链中复核的环境差异。
 
+## 1.0.0.2 / MSIX 安装后启动修复
+
+2026-11-17：复现 1.0.0.1 包身份下启动崩溃，事件日志报 `Microsoft.UI.Xaml.dll` / `0xc000027b`，WER 的实际 HRESULT 为 `0x80040154`（类未注册）。旧打包流程仅复制了独立发布目录，缺少自包含 Windows App SDK 的包级运行时注册。合并 SDK 对应清单中的 24 个运行时扩展、928 个可激活类后，又出现缺少 `ms-appx:///Microsoft.UI.Xaml/Themes/themeresources.xaml` 的 XAML 异常；补充以 `MasterTea.CXPrinter` 为索引名的 `resources.pri` 后启动成功。
+
+修复已加入 `scripts/package-msix.ps1`。运行时注册信息由 UI 发布任务从实际构建使用的 SDK 导出，打包时校验所有注册 DLL 均存在；资源索引由应用自身已合并 WinUI 资源的 PRI 生成，保留独立发布目录原有 PRI。
+
+实际安装 `CX-Printer_1.0.0.2_x64.msix` 到 `C:\Program Files\WindowsApps` 后，包状态 `Ok`、`IsDevelopmentMode=False`。当前系统报告 `10.0.17763.0`；通过 `IApplicationActivationManager.ActivateApplication` 启动得到可见 `CX Printer` 窗口，正常关闭退出码 `0`。回归脚本为 `scripts/test-msix-launch.ps1`，结果文件随 Release 发布。
+
+为本机安装测试将项目公开证书导入了当前用户的 Trusted People；未修改系统级证书信任或安装打印服务。
+
 ## 1.0.0.1 / 17763 更新
 
 2026-11-17：MSIX 最低版本改为 `10.0.17763.0`，UI 与后台最小平台版本一并调整；仍使用 19041 SDK API 定义编译。当前主机的 `Environment.OSVersion.Version` 报告 `10.0.17763.0`。重新运行核心 17 项与后台 18 项测试，全部通过；发布目录中的 WinUI 窗口成功启动并连接本机调试后台，退出码为 0。

@@ -2,7 +2,7 @@
 
 发布者：MasterTea（清单和签名证书主题均为 `CN=MasterTea`）
 
-版本：1.0.0.1；架构：x64；系统最低要求：Windows 10 1809 / build 17763。
+版本：1.0.0.2；架构：x64；系统最低要求：Windows 10 1809 / build 17763。
 
 ## 首次安装
 
@@ -11,16 +11,16 @@
 1. 双击 `MasterTea.cer`，核对颁发给/颁发者均为 MasterTea。
 2. 点击“安装证书”，选择“本地计算机”。
 3. 选择“将所有的证书都放入下列存储”，选择“受信任人（Trusted People）”，完成导入。
-4. 双击 `CX-Printer_1.0.0.1_x64.msix`，点击安装。
+4. 双击 `CX-Printer_1.0.0.2_x64.msix`，点击安装。
 5. 从开始菜单打开 CX Printer。首次共享时，在软件中安装打印后台服务并接受 UAC 提示，然后选择物理打印机共享。
 
-公开 `.cer` 文件不包含私钥。这个自签名证书不会自动获得其他电脑的信任，也不代表 Microsoft Store 或商业 CA 认证。这里只生成包和证书，没有自动修改当前电脑的证书信任或执行安装。
+公开 `.cer` 文件不包含私钥。这个自签名证书不会自动获得其他电脑的信任，也不代表 Microsoft Store 或商业 CA 认证。更新旧版时直接安装新版本即可，无需先卸载；沿用同一张 MasterTea 证书。
 
 也可在“管理员 PowerShell”中，在本目录运行：
 
 ```powershell
 Import-Certificate -FilePath .\MasterTea.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople
-Add-AppxPackage -Path .\CX-Printer_1.0.0.1_x64.msix
+Add-AppxPackage -Path .\CX-Printer_1.0.0.2_x64.msix
 ```
 
 ## 更新与卸载
@@ -40,4 +40,12 @@ powershell -ExecutionPolicy Bypass -File .\scripts\package-msix.ps1 -Version 1.0
 
 脚本复用 `.tools` 下的签名证书。默认使用 Windows SDK 26100 的 MakeAppx 和 SignTool。完整运行时随包附带，无需单独安装 .NET 或 Windows App SDK 运行时。
 
-本次已执行清单/包结构校验与签名检查。MSIX 在目标系统中的真实安装、开始菜单激活、UAC 服务安装及物理打印仍需联测；此前通过的是解压发布目录的窗口与后台连接检查。
+1.0.0.2 修复了安装后启动崩溃：打包时从随发布目录导出的 Windows App SDK 清单合并运行时类注册，并为包身份生成 `resources.pri`，同时保留独立发布目录的启动方式。
+
+可在已信任证书的测试机运行以下安装入口回归检查。脚本实际安装指定 MSIX，再通过与开始菜单相同的应用激活 API 打开窗口，检查存活与可见窗口，然后正常关闭：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\test-msix-launch.ps1 -PackagePath .\artifacts\MSIX\CX-Printer_1.0.0.2_x64.msix -CloseAfterTest
+```
+
+UAC 服务安装、真实 Apple 设备连接及物理打印仍需在实际环境联测。

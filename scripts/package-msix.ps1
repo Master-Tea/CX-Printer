@@ -1,5 +1,5 @@
 param(
-    [string]$Version='1.0.0.1',
+    [string]$Version='1.0.0.2',
     [string]$PfxPath,
     [string]$PfxPassword
 )
@@ -18,6 +18,17 @@ $manifestPath=Join-Path $stage 'AppxManifest.xml'
 [xml]$manifest=Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8
 $manifest.Package.Identity.Version=$Version
 $manifest.Save($manifestPath)
+$runtimeManifest=Join-Path $stage 'Deployment\WindowsAppRuntime.AppxManifest.xml'
+if (!(Test-Path -LiteralPath $runtimeManifest)) { throw 'Runtime activation metadata is missing. Rebuild with scripts/build.ps1.' }
+& (Join-Path $PSScriptRoot 'merge-msix-runtime.ps1') -PackageManifest $manifestPath -RuntimeManifest $runtimeManifest
+# Packaged resource lookup uses resources.pri with the package identity as its map name.
+# The app PRI already includes its XBF files and the merged WinUI resource dictionaries.
+$priInputs=Join-Path $stage 'runtime-pri.resfiles'
+$priConfig=Join-Path $stage 'msix-priconfig.xml'
+'CX Printer.pri' | Set-Content -LiteralPath $priInputs -Encoding UTF8
+Copy-Item -LiteralPath (Join-Path $repo 'packaging\msix-priconfig.xml') -Destination $priConfig
+& "$tools\makepri.exe" new /pr $stage /cf $priConfig /of (Join-Path $stage 'resources.pri') /in $manifest.Package.Identity.Name /o
+if ($LASTEXITCODE -ne 0) { throw 'MSIX resource indexing failed.' }
 $package=Join-Path $out "CX-Printer_${Version}_x64.msix"
 & "$tools\makeappx.exe" pack /d $stage /p $package /o
 if ($LASTEXITCODE -ne 0) { throw 'MSIX validation/packing failed.' }

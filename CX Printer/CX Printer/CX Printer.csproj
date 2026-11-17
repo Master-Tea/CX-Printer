@@ -40,6 +40,9 @@
     </ItemGroup>
     <Error Condition="!Exists('$(TargetDir)$(AssemblyName).pri')" Text="缺少 WinUI 编译资源，请使用 Visual Studio MSBuild 构建。" />
     <Copy SourceFiles="@(_WinUIResources)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
+    <PropertyGroup><_RuntimeActivationManifest>$(SelfContainedIntermediateOutputPath)MsixContent\AppxManifest.xml</_RuntimeActivationManifest></PropertyGroup>
+    <Error Condition="!Exists('$(_RuntimeActivationManifest)')" Text="Windows App SDK activation manifest is missing." />
+    <Copy SourceFiles="$(_RuntimeActivationManifest)" DestinationFiles="$(PublishDir)Deployment\WindowsAppRuntime.AppxManifest.xml" SkipUnchangedFiles="true" />
   </Target>
   <Target Name="CopyBridgeForLocalDebug" AfterTargets="Build" Condition="'$(DesignTimeBuild)' != 'true'">
     <PropertyGroup><_BridgeDirectory>$(MSBuildThisFileDirectory)..\..\src\CxPrint.Service\bin\$(Platform)\$(Configuration)\$(TargetFramework)\$(RuntimeIdentifier)</_BridgeDirectory></PropertyGroup>

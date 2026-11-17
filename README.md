@@ -4,7 +4,7 @@
 
 ## 安装 MSIX
 
-发布者为 **MasterTea**，最低系统版本为 **Windows 10 1809 / build 17763**，当前安装包版本为 **1.0.0.1（x64）**。从 GitHub Releases 下载 MSIX 和 `MasterTea.cer`，首次安装先将公开证书导入“本地计算机 → 受信任人”。具体步骤见 [MSIX 安装说明](docs/msix-installation.md)。
+发布者为 **MasterTea**，最低系统版本为 **Windows 10 1809 / build 17763**，当前安装包版本为 **1.0.0.2（x64）**。从 GitHub Releases 下载 MSIX 和 `MasterTea.cer`，首次安装先将公开证书导入“本地计算机 → 受信任人”。具体步骤见 [MSIX 安装说明](docs/msix-installation.md)。
 
 编译目标使用 Windows SDK 19041 的 API 定义，应用与后台声明的最低运行版本为 17763；开发所需 SDK 版本与最低运行系统版本不同。
 
