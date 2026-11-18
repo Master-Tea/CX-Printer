@@ -6,6 +6,8 @@ CX Printer 使用 Windows 已安装的打印驱动处理作业，通过 IPP 和 
 
 **当前版本：1.0.0.8 · Windows 10 1809 及以上 · x64**
 
+[Windows7/8.1 兼容版请看这里](https://github.com/Master-Tea/CX-Printer-Legacy)
+
 [下载安装包](https://github.com/Master-Tea/CX-Printer/releases/latest) · [安装说明](docs/msix-installation.md) · [本版更新](docs/release-1.0.0.8.md)
 
 ## 能做什么
@@ -24,7 +26,7 @@ CX Printer 使用 Windows 已安装的打印驱动处理作业，通过 IPP 和 
 
 准备一台能正常打印的 Windows 电脑，并让电脑与 Apple 设备接入可互通的局域网。当前发布包为 x64，包含所需的 .NET 和 Windows App SDK 运行时。
 
-1. 从 [Releases](https://github.com/Master-Tea/CX-Printer/releases/latest) 下载 `CX-Printer_1.0.0.8_x64.msix` 和 `MasterTea.cer`。
+1. 从 [发布](https://github.com/Master-Tea/CX-Printer/releases/latest) 下载 `CX-Printer_1.0.0.8_x64.msix` 和 `MasterTea.cer`。
 2. 首次安装时，双击证书，选择“本地计算机 → 将所有的证书都放入下列存储 → 受信任人”。导入证书需要管理员权限。
 3. 双击 MSIX 安装，从开始菜单打开 **CX Printer**。
 4. 在“打印机共享”页点击“安装服务”，按 Windows 提示完成管理员授权。
