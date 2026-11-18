@@ -22,6 +22,8 @@ CX Printer 使用 Windows 已安装的打印驱动处理作业，通过 IPP 和 
 | 打印认证 | 可设置独立的打印账户和密码 |
 | 后台运行 | 独立 Windows 服务、开机启动、系统托盘、作业记录和连接诊断 |
 
+<img width="1440" height="900" alt="image" src="https://github.com/user-attachments/assets/55ce3061-6fdc-4277-aa58-d3b332c51437" />
+
 ## 安装与首次使用
 
 准备一台能正常打印的 Windows 电脑，并让电脑与 Apple 设备接入可互通的局域网。当前发布包为 x64，包含所需的 .NET 和 Windows App SDK 运行时。
