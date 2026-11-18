@@ -138,7 +138,7 @@ public sealed partial class MainWindow : Window
             NetworkDetails.Text=status is null ? connectionError ?? "打印服务未运行。请先安装或启动服务。" :
                 $"后台版本：{status.Diagnostics?.ServiceVersion.Split('+')[0] ?? "未提供（旧版后台）"}\n服务端口：TCP {status.Port}    设备发现：UDP 5353\n{status.DiscoveryStatus}\n当前地址：{string.Join("，",status.Addresses)}\n\n"+
                 string.Join("\n\n",status.SharedPrinters.Select(p=>$"{p.EffectiveDisplayName}\nWindows 打印机：{p.Name}\nipp://{status.Addresses.FirstOrDefault(a=>!a.Contains(':')) ?? "电脑IP"}:{status.Port}/printers/{p.Id}"));
-            static string PrinterFingerprint(PrinterInfo p)=>p.Id+":"+p.Summary+":"+p.DefaultMedia+":"+string.Join(',',p.Media.Select(m=>$"{m.Key}/{m.Width}/{m.Height}"));
+            static string PrinterFingerprint(PrinterInfo p)=>p.Id+":"+p.Summary+":"+p.DefaultMedia+":"+p.Supplies?.Summary+":"+string.Join(',',p.Media.Select(m=>$"{m.Key}/{m.Width}/{m.Height}"));
             if (refreshPrinters || !_printers.Select(p=>PrinterFingerprint(p.Info)).SequenceEqual(available.Select(PrinterFingerprint)))
             {
                 var saved=_printers.ToDictionary(p=>p.Id);
@@ -185,6 +185,8 @@ public sealed partial class MainWindow : Window
             PaperCombo.ItemsSource=row.Info.Media;
             PaperCombo.SelectedItem=row.Info.Media.FirstOrDefault(m=>m.Key==row.DefaultMedia) ?? row.Info.Media.FirstOrDefault();
             PaperDetails.Text=string.Join("\n",row.Info.Media.Select(m=>m.Description));
+            SuppliesDetails.Text=row.Info.IsPdfTest ? "虚拟打印机没有墨水或碳粉耗材。" :
+                row.Info.Supplies?.Summary ?? (_status is null ? "启动打印服务后自动读取耗材。" : "正在等待 Windows 驱动提供耗材信息…");
         }
         finally { _rendering=previous; }
     }
@@ -308,7 +310,7 @@ public sealed partial class MainWindow : Window
         var runtime=diagnostics is null ? "后台尚未提供版本与请求诊断。" :
             $"后台版本：{diagnostics.ServiceVersion}\n后台 DLL SHA-256：{diagnostics.ServiceSha256}\n最近 IPP 请求：\n{string.Join("\n",diagnostics.RecentIppRequests)}\n最近发现异常：{diagnostics.DiscoveryError ?? "无"}";
         var text=$"CX Printer {version}\n{RailStatus.Text}\n{NetworkDetails.Text}\n认证：{(_status?.AuthenticationEnabled==true ? "已启用" : "未启用")}\n自启：{AutoStartToggle.IsOn}\n{runtime}\n\n"+
-            string.Join("\n",_printers.Select(p=>$"{p.Name}: {p.Summary}\n"+string.Join("; ",p.Info.Media.Select(m=>$"{m.Key}={m.Width}x{m.Height}"))));
+            string.Join("\n",_printers.Select(p=>$"{p.Name}: {p.Summary}\n耗材：{p.Info.Supplies?.Summary ?? "未读取"}\n"+string.Join("; ",p.Info.Media.Select(m=>$"{m.Key}={m.Width}x{m.Height}"))));
         var package=new DataPackage(); package.SetText(text); Clipboard.SetContent(package);
         Tell("已复制诊断信息","包含后台版本、IPP 请求结果、网络和纸张信息，不包含密码或凭据摘要。",InfoBarSeverity.Success);
     });

@@ -31,8 +31,9 @@ public static class PrinterAttributes
             Text(g,IppTag.Keyword,"ipp-versions-supported","1.1","2.0"),
             Attr(g,"operations-supported",Operations.Select(x=>IppValue.Int(x,IppTag.Enum)).ToArray()),
             Attr(g,"printer-state",IppValue.Int(3,IppTag.Enum)),
-            Text(g,IppTag.Keyword,"printer-state-reasons","none"),
-            Text(g,IppTag.Text,"printer-state-message","就绪；作业提交到 Windows 打印队列"),
+            Text(g,IppTag.Keyword,"printer-state-reasons",SupplyAttributes.StateReasons(printer.Supplies)),
+            Text(g,IppTag.Text,"printer-state-message",SupplyAttributes.StateReasons(printer.Supplies) is ["none"]
+                ? "就绪；作业提交到 Windows 打印队列" : "耗材不足或需要维护；作业提交到 Windows 打印队列"),
             Attr(g,"printer-is-accepting-jobs",IppValue.Bool(true)), Int(g,"queued-job-count",jobs),
             Int(g,"printer-up-time",Math.Max(1,uptime)), Int(g,"printer-config-change-time",configChangeTime),
             Text(g,IppTag.Charset,"charset-configured","utf-8"), Text(g,IppTag.Charset,"charset-supported","utf-8"),
@@ -80,9 +81,13 @@ public static class PrinterAttributes
             var margins = printer.Media.Select(m=>side switch { "left"=>m.Left,"right"=>m.Right,"top"=>m.Top,_=>m.Bottom }).Distinct().ToArray();
             attrs.Add(Int(g,$"media-{side}-margin-supported",margins));
         }
+        attrs.AddRange(SupplyAttributes.Build(printer.Supplies));
         return requested is null || requested.Count == 0 || requested.Contains("all") || requested.Contains("printer-description") || requested.Contains("printer-defaults")
-            ? attrs : attrs.Where(a=>requested.Contains(a.Name)).ToList();
+            ? attrs : attrs.Where(a=>requested.Contains(a.Name) || requested.Contains("printer-status") && IsStatus(a.Name)).ToList();
     }
+    private static bool IsStatus(string name) => name.StartsWith("marker-",StringComparison.Ordinal) ||
+        name.StartsWith("printer-supply",StringComparison.Ordinal) || name.StartsWith("printer-state",StringComparison.Ordinal) ||
+        name is "printer-is-accepting-jobs" or "queued-job-count" or "printer-up-time";
 
     public static string StableUuid(string id) => new Guid(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("CX Printer:"+Environment.MachineName+":"+id))[..16]).ToString();
 }

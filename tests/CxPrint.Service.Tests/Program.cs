@@ -50,6 +50,7 @@ if (args.Contains("--pdf-printer-only"))
     return failures==0 ? 0 : 1;
 }
 await PrinterRegressionTests.RunAsync(Test,printer);
+await SupplyTests.RunAsync(Test,printer);
 
 await Test("Restart aborts interrupted jobs without reprinting",async ()=>
 {
@@ -107,7 +108,8 @@ await Test("Backend failures become an aborted job with cleaned spool files",asy
 var settingsPath=Path.Combine(root,"http-settings.json");
 File.WriteAllText(settingsPath,JsonSerializer.Serialize(new BridgeSettings { Port=18631,OwnerSid=WindowsIdentity.GetCurrent().User!.Value,Printers=[selected] },Product.Json));
 var state=new StateStore(settingsPath);
-var monitor=new PrinterMonitor(NullLogger<PrinterMonitor>.Instance,new PrinterScanner(()=>[printer.Name],_=>printer)); await monitor.RefreshAsync();
+var supplyMonitor=new PrinterSupplyMonitor(_=>PrinterSupplyReader.ParseResponse(SupplyTests.Response));
+var monitor=new PrinterMonitor(NullLogger<PrinterMonitor>.Instance,new PrinterScanner(()=>[printer.Name],_=>printer),supplyMonitor); await monitor.RefreshAsync();
 var discovery=new DiscoveryWorker(state,monitor,NullLogger<DiscoveryWorker>.Instance);
 var httpBackend=new FakeBackend(); using var httpJobs=Manager(httpBackend,"http-jobs"); await httpJobs.StartAsync(default);
 var endpoint=new IppEndpoint(state,monitor,httpJobs,discovery,new(),NullLogger<IppEndpoint>.Instance);
@@ -135,6 +137,19 @@ try
         var reply=await Send(Request(0x000b)); Assert(reply.Ipp?.Code==0);
         Assert(reply.Ipp!.Text("media-default")==paper.Key); Assert(reply.Ipp.Find("media-col-database")!.Values.Count==2);
         Assert(reply.Ipp.Find("media-col-database")!.Values[1].Member("media-size")!.Values[0].Member("y-dimension")!.Values[0].Integer==42000);
+    });
+    await Test("Real HTTP exposes cached Windows supplies through Apple marker and standard IPP attributes",async ()=>
+    {
+        _=monitor.Printers;
+        using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        while (supplyMonitor.Get(printer.Id) is null) await Task.Delay(10,timeout.Token);
+        var reply=(await Send(Request(0x000b,Text(1,IppTag.Keyword,"requested-attributes","printer-status")))).Ipp!;
+        Assert(reply.Code==0 && reply.Find("marker-levels")!.Values.Select(v=>v.Integer).SequenceEqual(new[]{72,-2,-1,95}));
+        Assert(reply.Find("marker-names")!.Values[0].Text.Contains("黑色硒鼓"));
+        Assert(reply.Find("printer-supply") is { Tag:IppTag.Octets,Values.Count:4 });
+        Assert(reply.Find("printer-state-reasons")!.Values.Any(v=>v.Text=="marker-waste-almost-full-warning"));
+        var explicitReply=(await Send(Request(0x000b,Text(1,IppTag.Keyword,"requested-attributes","marker-levels")))).Ipp!;
+        Assert(explicitReply.Find("marker-levels")!.Values.Count==4 && explicitReply.Find("media-supported") is null);
     });
     await Test("Apply persists Apple names, reloads them, refreshes discovery and keeps the Windows destination",async ()=>
     {

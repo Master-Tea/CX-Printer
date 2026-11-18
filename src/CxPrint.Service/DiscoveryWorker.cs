@@ -9,13 +9,22 @@ using Makaretu.Dns;
 
 namespace CxPrint.Service;
 
-public sealed class PrinterMonitor(ILogger<PrinterMonitor> logger,PrinterScanner? scanner=null) : ServiceWorker
+public sealed class PrinterMonitor(ILogger<PrinterMonitor> logger,PrinterScanner? scanner=null,PrinterSupplyMonitor? supplies=null) : ServiceWorker
 {
     private readonly PrinterScanner _scanner=scanner ?? new(onRead:(name,elapsed)=>
     {
         if (elapsed>TimeSpan.FromSeconds(5)) logger.LogWarning("打印机 {Printer} 的驱动与纸张读取耗时 {Seconds:F1} 秒。",name,elapsed.TotalSeconds);
     });
-    public PrinterScanSnapshot Snapshot=>_scanner.Snapshot;
+    private readonly PrinterSupplyMonitor _supplies=supplies ?? new();
+    public PrinterScanSnapshot Snapshot
+    {
+        get
+        {
+            var snapshot=_scanner.Snapshot;
+            _supplies.RequestRefresh(snapshot.Printers);
+            return snapshot with { Printers=snapshot.Printers.Select(p=>p with { Supplies=_supplies.Get(p.Id) }).ToArray() };
+        }
+    }
     public IReadOnlyList<PrinterInfo> Printers=>Snapshot.Printers;
     public bool Refreshing=>Snapshot.Refreshing;
     public Task RefreshAsync(CancellationToken cancellation=default)=>_scanner.RefreshAsync(cancellation);

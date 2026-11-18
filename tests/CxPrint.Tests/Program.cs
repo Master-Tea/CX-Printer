@@ -51,6 +51,44 @@ AsyncTest("IPP names use the configured Apple name without changing printer iden
         Assert(reply.Text("printer-uuid")=="urn:uuid:"+PrinterAttributes.StableUuid(printer.Id));
     }
 });
+AsyncTest("IPP supplies preserve colors, levels and unknown values across the wire",async ()=>
+{
+    var supplies=new PrinterSupplies([
+        new("black","Black cartridge","toner","black",53,true),
+        new("cyan","青色墨盒","ink","cyan",6,true),
+        new("unknown","Unknown level","ink","magenta"),
+        new("missing","Missing cartridge","ink","yellow",100,false),
+        new("waste","Waste ink tank","waste-ink","none",95,true)
+    ],DateTimeOffset.UtcNow,ChangeTime:12);
+    var attrs=PrinterAttributes.Build(printer with { Supplies=supplies },shared,"ipp://localhost/printers/"+printer.Id,false,20,0,1);
+    var reply=await ReadAsync(new MemoryStream(Write(Response(Request(),0,attrs))));
+    Assert(reply.Find("marker-levels")!.Values.Select(v=>v.Integer).SequenceEqual(new[]{53,6,-2,-1,95}));
+    Assert(reply.Find("marker-colors")!.Tag==IppTag.Name && reply.Find("marker-colors")!.Values.Select(v=>v.Text).SequenceEqual(new[]{"#000000","#00FFFF","#FF00FF","#FFFF00","none"}));
+    Assert(reply.Find("marker-names")!.Values[1].Text=="青色墨盒");
+    Assert(reply.Find("marker-high-levels")!.Values[^1].Integer==90 && reply.Find("marker-low-levels")!.Values[^1].Integer==0);
+    Assert(reply.Number("marker-change-time")==12);
+    Assert(reply.Find("printer-supply") is { Tag:IppTag.Octets,Values.Count:5 });
+    Assert(reply.Find("printer-supply")!.Values[2].Text.Contains("level=-2;") && reply.Find("printer-supply")!.Values[4].Text.Contains("class=receptacle;"));
+    Assert(reply.Find("printer-supply-description")!.Values.Count==5);
+    Assert(reply.Find("printer-state-reasons")!.Values.Select(v=>v.Text).ToHashSet().SetEquals(new[]{"marker-supply-low-warning","marker-waste-almost-full-warning"}));
+    Assert(reply.Flag("printer-is-accepting-jobs"),"Supply warnings blocked the Windows queue.");
+});
+Test("Missing or failed supply data never invents cartridge levels",()=>
+{
+    foreach (var supplies in new PrinterSupplies?[]{null,new([],DateTimeOffset.UtcNow),new([],DateTimeOffset.UtcNow,"driver unavailable")})
+    {
+        var attrs=PrinterAttributes.Build(printer with { Supplies=supplies },shared,"ipp://localhost/",false,20,0,1);
+        Assert(!attrs.Any(a=>a.Name.StartsWith("marker-") || a.Name.StartsWith("printer-supply")));
+        Assert(attrs.Single(a=>a.Name=="printer-state-reasons").Values.Single().Text=="none");
+    }
+    var state=new PrinterSupplies([new("k","Black","toner","black",0),new("w","Waste","waste-toner","none",100)],DateTimeOffset.UtcNow);
+    Assert(SupplyAttributes.StateReasons(state).ToHashSet().SetEquals(new[]{"marker-supply-empty-warning","toner-empty-warning","marker-waste-full-warning"}));
+    var supplied=printer with { Supplies=state };
+    var requested=PrinterAttributes.Build(supplied,shared,"ipp://localhost/",false,20,0,1,new HashSet<string>{"marker-levels","printer-supply"});
+    Assert(requested.Select(a=>a.Name).ToHashSet().SetEquals(new[]{"marker-levels","printer-supply"}));
+    var status=PrinterAttributes.Build(supplied,shared,"ipp://localhost/",false,20,0,1,new HashSet<string>{"printer-status"});
+    Assert(status.Any(a=>a.Name=="marker-levels") && status.Any(a=>a.Name=="printer-supply") && !status.Any(a=>a.Name=="media-supported"));
+});
 Test("A4, A3 and Letter keywords remain distinct",()=>
 {
     Assert(MediaSize.Keyword(21000,29700)==a4.Key); Assert(MediaSize.Keyword(21590,27940)==letter.Key);

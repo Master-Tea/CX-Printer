@@ -1,55 +1,63 @@
 # CX Printer MSIX 安装
 
-发布者：MasterTea（清单和签名证书主题均为 `CN=MasterTea`）
+版本：**1.0.0.8**；架构：**x64**；最低系统：**Windows 10 1809 / build 17763**。发布者为 MasterTea，包清单和签名证书主题均为 `CN=MasterTea`。
 
-版本：1.0.0.7；架构：x64；系统最低要求：Windows 10 1809 / build 17763。
+从 [GitHub Releases](https://github.com/Master-Tea/CX-Printer/releases/latest) 下载安装文件。包内包含 .NET 和 Windows App SDK 运行时，无需单独安装这些运行时或旧 Bonjour。
 
 ## 首次安装
 
-该包使用为本项目生成的自签名代码签名证书。首次安装到一台电脑前，需要由管理员信任随包交付的公开证书。
+1. 下载 `CX-Printer_1.0.0.8_x64.msix`、`MasterTea.cer` 和可选的 `.msix.sha256` 校验文件。
+2. 双击 `MasterTea.cer`，核对颁发给/颁发者均为 MasterTea。
+3. 点击“安装证书”，选择“本地计算机 → 将所有的证书都放入下列存储 → 受信任人（Trusted People）”，完成管理员授权。
+4. 双击 MSIX 安装，从开始菜单打开 CX Printer。
+5. 在“打印机共享”页安装打印服务，按 Windows 提示完成管理员授权，勾选打印机并保存。
 
-1. 双击 `MasterTea.cer`，核对颁发给/颁发者均为 MasterTea。
-2. 点击“安装证书”，选择“本地计算机”。
-3. 选择“将所有的证书都放入下列存储”，选择“受信任人（Trusted People）”，完成导入。
-4. 双击 `CX-Printer_1.0.0.7_x64.msix`，点击安装。
-5. 从开始菜单打开 CX Printer。首次共享时，在软件中安装打印后台服务并接受 UAC 提示，然后选择物理打印机共享。
+安装包使用项目自己的代码签名证书，首次安装需要手动信任。公开的 `.cer` 不含私钥。
 
-公开 `.cer` 文件不包含私钥。这个自签名证书不会自动获得其他电脑的信任，也不代表 Microsoft Store 或商业 CA 认证。更新旧版时直接安装新版本即可，无需先卸载；沿用同一张 MasterTea 证书。
-
-也可在“管理员 PowerShell”中，在本目录运行：
+也可以在下载目录打开管理员 PowerShell：
 
 ```powershell
 Import-Certificate -FilePath .\MasterTea.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople
-Add-AppxPackage -Path .\CX-Printer_1.0.0.7_x64.msix
+Add-AppxPackage -Path .\CX-Printer_1.0.0.8_x64.msix
 ```
 
-## 更新与卸载
+如需核对下载完整性，运行以下命令，并将结果与 `.sha256` 文件中的值比较：
 
-更新时须使用相同的包名称、发布者与签名私钥，且提升四段版本号。签名私钥与密码只保留在源码工作区 `.tools\MasterTea-MSIX.pfx` 和 `.tools\MasterTea-MSIX.password`，请安全备份；不要与安装包一起分发。
+```powershell
+Get-FileHash .\CX-Printer_1.0.0.8_x64.msix -Algorithm SHA256
+```
 
-1.0.0.7 更新后请打开“启动与连接”并点击一次“修复服务与防火墙”，更新独立安装的后台组件，并确认显示的后台版本为 `1.0.0.7`。在“打印机共享”选中打印机，填写“Apple 设备显示名称”并保存；默认名称为 `打印机名称- CX Printer`，留空或点击“恢复默认”可恢复。已有共享和认证设置会保留。Mac 中已添加的队列可能保留旧名称，移除并重新添加可刷新。
+## 从旧版更新
 
-本版保留 1.0.0.6 的稳定 SRV 目标主机名 `cx-<主机标识>.local`，显示名称中的中文、空格和点号不会改变 IPP 地址。“复制诊断信息”包含后台文件 SHA-256、最近 IPP 请求结果和完整发现异常堆栈。
+直接安装新版 MSIX，无需先卸载；同一台电脑已信任原 MasterTea 证书后，无需重复导入。
 
-打印服务由软件内的服务管理功能独立安装到 Program Files。卸载 MSIX 前，请先在“启动与连接”中点击“卸载打印服务”，再通过 Windows 设置卸载 CX Printer。仅卸载 MSIX 不会移除独立安装的服务、防火墙规则或 ProgramData 中的设置与日志。
+更新后进入 **“启动与连接 → 修复服务与防火墙”**，把新版后台复制到系统服务目录，并确认后台版本为 `1.0.0.8`。MSIX 更新与独立服务更新是两个步骤；仅安装新界面不会替换已经运行的后台。
 
-## 构建
+共享选择、Apple 显示名称、默认纸张和认证设置会保留。本版新增耗材信息，选中实体打印机后等待约一分钟查看结果。数据取决于 Windows 驱动支持，参见 [耗材说明](supplies.md)。
 
-在源码工作区执行：
+Mac 可能缓存已添加打印机的名称和纸张能力；需要时删除后重新添加。当前广播继续使用稳定的 `cx-<主机标识>.local` 主机名，修改显示名称不会改变打印机 ID 或 IPP 路径。
+
+## 卸载
+
+先在 CX Printer 的“启动与连接”页点击“卸载打印服务”，再通过 Windows 设置卸载应用。服务管理功能会移除独立安装的后台及防火墙规则，保留设置和日志。
+
+仅卸载 MSIX 不会移除独立安装的服务、防火墙规则或 `%ProgramData%\CX Printer` 中的数据。
+
+## 构建与安装入口测试
+
+在已提交源码的工作区执行：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1
-powershell -ExecutionPolicy Bypass -File .\scripts\package-msix.ps1 -Version 1.0.0.7
+powershell -ExecutionPolicy Bypass -File .\scripts\package-msix.ps1 -Version 1.0.0.8
 ```
 
-脚本复用 `.tools` 下的签名证书。默认使用 Windows SDK 26100 的 MakeAppx 和 SignTool。完整运行时随包附带，无需单独安装 .NET 或 Windows App SDK 运行时。
+脚本沿用 `.tools` 下的签名证书与密码，调用 Windows SDK 26100 的打包工具。升级包需要沿用原包身份、发布者与签名私钥，并提升四段版本号。私钥和密码不随安装包分发。
 
-1.0.0.2 修复了安装后启动崩溃：打包时从随发布目录导出的 Windows App SDK 清单合并运行时类注册，并为包身份生成 `resources.pri`，同时保留独立发布目录的启动方式。
-
-可在已信任证书的测试机运行以下安装入口回归检查。脚本实际安装指定 MSIX，再通过与开始菜单相同的应用激活 API 打开窗口，检查存活与可见窗口，然后正常关闭：
+在已信任证书的测试机上，可以实际安装 MSIX，并通过与开始菜单相同的激活 API 检查可见窗口与正常退出：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\test-msix-launch.ps1 -PackagePath .\artifacts\MSIX\CX-Printer_1.0.0.7_x64.msix -CloseAfterTest
+powershell -ExecutionPolicy Bypass -File .\scripts\test-msix-launch.ps1 -PackagePath .\artifacts\MSIX\CX-Printer_1.0.0.8_x64.msix -CloseAfterTest
 ```
 
-UAC 服务安装、真实 Apple 设备连接及物理打印仍需在实际环境联测。
+该测试会更新测试机上的应用安装。实体打印机、Apple 设备连接及实际出纸需要在对应环境中检查。更多构建与调试信息见 [开发说明](development.md)。

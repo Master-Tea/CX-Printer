@@ -142,6 +142,11 @@
                                             <Expander Header="查看全部纸张尺寸" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
                                                 <TextBlock x:Name="PaperDetails" Style="{StaticResource Hint}" IsTextSelectionEnabled="True" />
                                             </Expander>
+                                            <StackPanel Spacing="6">
+                                                <TextBlock Text="耗材信息" FontWeight="SemiBold" />
+                                                <TextBlock x:Name="SuppliesDetails" Style="{StaticResource Hint}" IsTextSelectionEnabled="True" />
+                                                <TextBlock Text="自动读取 Windows 驱动提供的余量，约每分钟更新。Mac 可查询耗材；iPhone/iPad 的显示方式取决于系统打印界面。" Style="{StaticResource Hint}" />
+                                            </StackPanel>
                                         </StackPanel>
                                     </Border>
                                     <Button x:Name="SavePrintersButton" Content="保存共享设置" MinHeight="36" Click="SavePrinters_Click" Style="{StaticResource AccentButtonStyle}" />

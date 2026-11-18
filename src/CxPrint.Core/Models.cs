@@ -47,6 +47,7 @@ public sealed record MediaSize(string Key, string DisplayName, int Width, int He
 public sealed record PrinterInfo(string Id, string Name, string Driver, string Port, bool Color, bool Duplex,
     IReadOnlyList<MediaSize> Media, string DefaultMedia, string? Error = null)
 {
+    public PrinterSupplies? Supplies { get; init; }
     public bool Usable => Error is null && Media.Count > 0;
     public bool IsPdfTest => IsMicrosoftPdfDriver(Driver);
     public static bool IsMicrosoftPdfDriver(string driver)=>driver.Equals("Microsoft Print To PDF",StringComparison.OrdinalIgnoreCase);

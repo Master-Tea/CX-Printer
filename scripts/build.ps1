@@ -84,7 +84,7 @@ try {
     $inventory | Sort-Object { $_.package } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $out 'dependencies.json') -Encoding UTF8
     Write-Output "Published application: $out"
     $publishedVersion=(Get-Item -LiteralPath (Join-Path $out 'Bridge\CxPrint.Service.dll')).VersionInfo.ProductVersion
-    $expectedVersion='1.0.0.7+'+$env:SourceRevisionId
+    $expectedVersion='1.0.0.8+'+$env:SourceRevisionId
     if ($publishedVersion -cne $expectedVersion) { throw "Backend source/version mismatch: expected $expectedVersion, got $publishedVersion. Commit source before building release artifacts." }
     Write-Output "Backend version: $publishedVersion"
     Write-Output "Start: $(Join-Path $out 'CX Printer.exe')"
